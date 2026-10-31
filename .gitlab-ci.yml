@@ -1,0 +1,64 @@
+stages: [lint, typecheck, test, docs, build, chart-lint, deploy]
+
+default:
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm
+  interruptible: true
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl git >/dev/null
+    - uv tool install rust-just && export PATH="$HOME/.local/bin:$PATH"
+    - uv sync --frozen
+
+variables:
+  UV_CACHE_DIR: .uv-cache
+
+cache:
+  key:
+    files: [uv.lock]
+  paths: [.uv-cache]
+
+lint:
+  stage: lint
+  script: [just lint]
+
+typecheck:
+  stage: typecheck
+  needs: [lint]
+  script: [just typecheck]
+
+test:
+  stage: test
+  needs: [lint]
+  script: [just test]
+
+docs:
+  stage: docs
+  needs: [test]
+  script: [just prompts docs-check docs secret-scan]
+
+build:
+  stage: build
+  image: docker:27
+  services: [docker:27-dind]
+  needs: [test]
+  before_script: []
+  script:
+    - docker buildx create --use
+    - docker run --privileged --rm tonistiigi/binfmt --install arm64
+    - docker buildx build --platform linux/amd64,linux/arm64 -f deploy/Dockerfile -t code-squad:$CI_COMMIT_SHORT_SHA .
+
+chart-lint:
+  stage: chart-lint
+  needs: [lint]
+  image: alpine/helm:3.16.3
+  before_script:
+    - apk add --no-cache curl bash just
+    - curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+  script: [just helm-lint]
+
+deploy:
+  stage: deploy
+  when: manual
+  image: alpine/helm:3.16.3
+  before_script: []
+  script:
+    - echo "helm upgrade --install code-squad deploy/helm/code-squad -f <your values>"

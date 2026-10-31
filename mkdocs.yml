@@ -1,0 +1,24 @@
+site_name: Code Squad
+site_description: Specialised review and engineering agents, portable to any Kubernetes.
+repo_url: https://github.com/acarmisc/the-office-ai-squad
+docs_dir: docs
+strict: true
+theme:
+  name: material
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+nav:
+  - Home: index.md
+  - Decisions:
+      - decisions/0001-stack.md
+  - Build brief: BRIEF.md
