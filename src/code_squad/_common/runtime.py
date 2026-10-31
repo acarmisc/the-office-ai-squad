@@ -21,6 +21,12 @@ from code_squad._common.contract import (
 from code_squad._common.model import ModelFactory, get_model_factory, litellm_tags
 from code_squad._common.policy_hook import IterationCounterHook, ToolPolicyHook
 from code_squad._common.posting import PostingGate
+from code_squad._common.skills.loader import skillset_from_payload
+from code_squad._common.skills.tools import (
+    applied_skills,
+    skills_prompt_section,
+    skillset_from_services,
+)
 from code_squad._common.spec import AgentSpec
 from code_squad._common.untrusted import UNTRUSTED_RULE
 
@@ -46,7 +52,7 @@ def create_agent(
     gate = current().gate
     tools = list(tools_override) if tools_override is not None else list(spec.tools)
     system_prompt = "\n\n".join(
-        [spec.system_prompt, UNTRUSTED_RULE, _dry_run_note(gate)]
+        [spec.system_prompt, UNTRUSTED_RULE, _dry_run_note(gate), *_skill_sections()]
     )
     return Agent(
         model=model,
@@ -69,7 +75,7 @@ def run_task(
         agent=spec.name,
         request=request,
         gate=PostingGate.from_request(request),
-        services=dict(services or {}),
+        services=_services_with_skills(services, request, spec.name),
     )
     factory = model_factory or get_model_factory()
     with use_context(ctx):
@@ -104,6 +110,23 @@ def _run(
         retry_model = factory(retry_id, spec.max_tokens, spec.temperature, tags)
         stop = _attempt(spec, ctx, retry_model, f"{prompt}\n\n{instruction}")
     return _finalize(spec, ctx, stop)
+
+
+def _services_with_skills(
+    services: dict[str, Any] | None, request: InvocationRequest, agent: str
+) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(services or {})
+    if request.skills and skillset_from_services(merged) is None:
+        merged["skills"] = skillset_from_payload(request, agent)
+    return merged
+
+
+def _skill_sections() -> list[str]:
+    skillset = skillset_from_services(current().services)
+    if skillset is None:
+        return []
+    section = skills_prompt_section(skillset)
+    return [section] if section else []
 
 
 def _task_prompt(spec: AgentSpec, request: InvocationRequest) -> str:
@@ -173,6 +196,9 @@ def _result(
     data: dict[str, Any] | None = None,
 ) -> InvocationResult:
     warnings = list(ctx.warnings)
+    skillset = skillset_from_services(ctx.services)
+    if skillset is not None:
+        warnings.extend(skillset.warnings)
     if ctx.gate.blocked:
         warnings.append(
             f"dry-run blocked {len(ctx.gate.blocked)} external write attempt(s)"
@@ -188,6 +214,7 @@ def _result(
             input_tokens=ctx.input_tokens,
             output_tokens=ctx.output_tokens,
             tool_calls=dict(ctx.tool_calls),
+            skills_applied=applied_skills(ctx.services),
         ),
         warnings=warnings,
         data=dict(data or {}),

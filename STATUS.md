@@ -10,7 +10,7 @@ Current milestone: **M2 — VCS providers + findings pipeline** (M3 in parallel)
 | M1 | Platform core | done |
 | M2 | VCS providers + findings pipeline | todo |
 | M3 | Configuration system | todo |
-| M4 | Skills system | todo |
+| M4 | Skills system | done |
 | M5 | jim + angela | todo |
 | M6 | dwight | todo |
 | M7 | darryl | todo |
