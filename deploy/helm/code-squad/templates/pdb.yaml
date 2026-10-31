@@ -1,0 +1,21 @@
+{{- $root := . -}}
+{{- if .Values.pdb.enabled }}
+{{- range $id := splitList " " (include "code-squad.agentIds" .) }}
+{{- if (index $root.Values.agents $id).enabled }}
+{{- $dctx := dict "id" $id "root" $root }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "code-squad.agentName" $dctx }}
+  namespace: {{ include "code-squad.namespace" $root }}
+  labels:
+    {{- include "code-squad.agentLabels" $dctx | nindent 4 }}
+spec:
+  minAvailable: {{ $root.Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "code-squad.agentSelectorLabels" $dctx | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

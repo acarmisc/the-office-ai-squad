@@ -1,0 +1,101 @@
+# yaml-language-server: $schema=../values.schema.json
+#
+# GitLab only (self-managed). GitHub webhooks are off, so only /webhooks/gitlab is routed.
+# Replace every RFC 5737 documentation address (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24)
+# with real CIDRs before installing.
+
+image:
+  # Your registry path for the code-squad image.
+  repository: registry.example.com/platform/code-squad
+  # Pin an exact tag in production.
+  tag: "0.1.0"
+
+llm:
+  # Internal LLM gateway.
+  baseUrl: https://llm-gateway.example.internal/v1
+  apiKeySecret:
+    # Empty: use secrets.existingSecret.
+    name: ""
+    # Key in the Secret.
+    key: llm-api-key
+
+vcs:
+  # Pin the provider so `auto` inference is not needed.
+  provider: gitlab
+  # Self-managed GitLab base URL.
+  baseUrl: https://gitlab.example.com
+
+secrets:
+  # Secret with gitlab-token, gitlab-webhook-secret and llm-api-key (see deploy/secrets-examples).
+  existingSecret: code-squad-secrets
+
+webhooks:
+  gitlab:
+    # Route /webhooks/gitlab.
+    enabled: true
+  github:
+    # No GitHub in this deployment.
+    enabled: false
+  # Empty: webhook secrets come from existingSecret.
+  secretName: ""
+
+ingress:
+  # Expose michael's webhook endpoint.
+  enabled: true
+  # Ingress controller class.
+  className: nginx
+  # Host GitLab calls for webhooks.
+  host: squad.example.com
+  # TLS certificate for the host.
+  tls:
+    - hosts:
+        - squad.example.com
+      secretName: squad-example-com-tls
+  # Body size: GitLab webhooks are small, but keep the default limits.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+
+networkPolicy:
+  # Keep policies on for the real install.
+  enabled: true
+  # Internal LLM gateway address range.
+  llmGatewayCIDRs: ["192.0.2.0/24"]
+  # Self-managed GitLab address.
+  vcsCIDRs: ["198.51.100.10/32"]
+  # Ingress controller namespace (default value kept explicit).
+  ingressControllerNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-nginx
+  # Kube-apiserver endpoint IPs for darryl and pam (control-plane node or load balancer).
+  kubeAPIServerCIDRs: ["203.0.113.5/32"]
+
+sandbox:
+  # Sandbox namespace must exist before install.
+  enabled: true
+  # Namespace name.
+  namespace: code-squad-sandbox
+  # Sandbox image.
+  image: registry.example.com/platform/code-squad-sandbox-node:0.1.0
+  # Allow the GitLab host only, on HTTPS.
+  allowedEgressCIDRs: ["198.51.100.10/32"]
+
+devops:
+  # darryl may read the deploy and app namespaces.
+  allowedNamespaces: ["payments", "web"]
+  # Keep cluster-wide read off.
+  clusterWide: false
+
+config:
+  org:
+    # Default GitLab settings for every project. Projects override per entry.
+    vcs:
+      provider: gitlab
+      approve_mode: none
+      status_mode: commit_status
+      comment_style: summary
+  projects:
+    # Single GitLab group, one project entry with a glob.
+    platform-group:
+      provider: gitlab
+      base_url: https://gitlab.example.com
+      match: ["platform/*"]
+      extends: balanced

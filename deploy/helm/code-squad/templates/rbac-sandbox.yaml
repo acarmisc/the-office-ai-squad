@@ -1,0 +1,42 @@
+{{- /*
+pam (implementer): manages sandbox pods in the sandbox namespace only.
+The sandbox namespace is not created by this chart. It must exist beforehand.
+*/ -}}
+{{- $root := . -}}
+{{- $pamCtx := dict "id" "pam" "root" $root -}}
+{{- if and .Values.sandbox.enabled (index .Values.agents "pam").enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: code-squad-sandbox-runner
+  namespace: {{ .Values.sandbox.namespace | quote }}
+  labels:
+    {{- include "code-squad.labels" $root | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "delete", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: code-squad-pam-sandbox
+  namespace: {{ .Values.sandbox.namespace | quote }}
+  labels:
+    {{- include "code-squad.labels" $root | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: code-squad-sandbox-runner
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "code-squad.serviceAccountName" $pamCtx }}
+    namespace: {{ include "code-squad.namespace" $root }}
+{{- end }}

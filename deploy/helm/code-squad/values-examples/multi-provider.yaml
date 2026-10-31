@@ -1,0 +1,100 @@
+# yaml-language-server: $schema=../values.schema.json
+#
+# Both GitLab and GitHub active in one deployment. The project registry (config.projects) maps
+# each project to its provider. vcs.provider is `auto`, so the provider comes from each entry.
+
+image:
+  # Your registry path for the code-squad image.
+  repository: registry.example.com/platform/code-squad
+  # Pin an exact tag in production.
+  tag: "0.1.0"
+
+llm:
+  # Internal LLM gateway.
+  baseUrl: https://llm-gateway.example.internal/v1
+  apiKeySecret:
+    # Empty: use secrets.existingSecret.
+    name: ""
+    # Key in the Secret.
+    key: llm-api-key
+
+vcs:
+  # Per-project provider wins; `auto` is the org default.
+  provider: auto
+  # No org-level host, each project entry sets its own base_url.
+  baseUrl: ""
+
+secrets:
+  # Secret with gitlab-token, github-app-id, github-app-private-key, webhook secrets, llm-api-key.
+  existingSecret: code-squad-secrets
+
+webhooks:
+  gitlab:
+    # Route /webhooks/gitlab.
+    enabled: true
+  github:
+    # Route /webhooks/github.
+    enabled: true
+  # Empty: webhook secrets come from existingSecret.
+  secretName: ""
+
+ingress:
+  # Expose michael's webhook endpoints.
+  enabled: true
+  # Ingress controller class.
+  className: nginx
+  # Host both forges call.
+  host: squad.example.com
+  # TLS certificate for the host.
+  tls:
+    - hosts:
+        - squad.example.com
+      secretName: squad-example-com-tls
+
+networkPolicy:
+  # Keep policies on for the real install.
+  enabled: true
+  # Internal LLM gateway address range.
+  llmGatewayCIDRs: ["192.0.2.0/24"]
+  # Self-managed GitLab and GitHub API ranges, both on HTTPS.
+  vcsCIDRs: ["198.51.100.10/32", "203.0.113.0/24"]
+  # Kube-apiserver endpoint IPs for darryl and pam.
+  kubeAPIServerCIDRs: ["203.0.113.5/32"]
+
+sandbox:
+  # Sandbox namespace must exist before install.
+  enabled: true
+  # Namespace name.
+  namespace: code-squad-sandbox
+  # Sandbox image.
+  image: registry.example.com/platform/code-squad-sandbox-node:0.1.0
+  # Git hosts for both forges.
+  allowedEgressCIDRs: ["198.51.100.10/32", "203.0.113.0/24"]
+
+devops:
+  # darryl reads the namespaces of both forges' workloads.
+  allowedNamespaces: ["payments", "web"]
+  # Keep cluster-wide read off.
+  clusterWide: false
+
+config:
+  org: {}
+  projects:
+    # GitLab project: self-managed host, token from the Secret.
+    payments-api:
+      provider: gitlab
+      base_url: https://gitlab.example.com
+      match: ["payments/api"]
+      extends: strict
+      vcs:
+        token_secret: gitlab-token
+    # GitHub project: App auth, balanced profile.
+    acme-web:
+      provider: github
+      match: ["acme/web-*"]
+      extends: balanced
+      vcs:
+        auth: github_app
+        app_id_secret: github-app-id
+        installation_id: 12345678
+        private_key_secret: github-app-private-key

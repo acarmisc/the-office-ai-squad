@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=../values.schema.json
+#
+# Air-gapped or egress-restricted cluster. All outbound HTTP(S) goes through a corporate proxy.
+# - egressProxy.url is set, so the agents use EGRESS_PROXY_URL.
+# - advisoryCIDRs is empty on purpose: the vulnerability hosts (OSV, NVD, GHSA, KEV, EPSS) are
+#   reached only through the proxy, and only when the proxy allow-list permits them.
+#   If they are not allowed, dwight runs in offline mode: findings are marked confidence: low and
+#   the summary says "vulnerability data unavailable/unverified".
+# Replace every placeholder address with real ones.
+
+image:
+  # Mirror of the code-squad image inside the air gap.
+  repository: registry.internal.example/platform/code-squad
+  # Pinned tag.
+  tag: "0.1.0"
+  # Images are mirrored, so pulls must not reach the internet.
+  pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  # Internal registry credentials.
+  - name: registry-internal
+
+llm:
+  # LLM gateway inside the network.
+  baseUrl: https://llm.internal.example/v1
+  apiKeySecret:
+    # Empty: use secrets.existingSecret.
+    name: ""
+    # Key in the Secret.
+    key: llm-api-key
+
+vcs:
+  # Self-managed GitLab inside the network.
+  provider: gitlab
+  # GitLab base URL, reached through the proxy.
+  baseUrl: https://gitlab.internal.example
+
+secrets:
+  # Secret with llm-api-key and gitlab-token.
+  existingSecret: code-squad-secrets
+
+egressProxy:
+  # In-cluster egress proxy Service. Agents send all outbound HTTP(S) here.
+  url: http://egress-proxy.platform.svc:3128
+
+networkPolicy:
+  # Policies on: nothing leaves the namespace except through the proxy.
+  enabled: true
+  # The proxy's ClusterIP range (its Service IP is in this CIDR).
+  egressProxyCIDRs: ["10.96.0.0/16"]
+  # Proxy port.
+  egressProxyPorts: [3128]
+  # LLM gateway is internal, so its address range.
+  llmGatewayCIDRs: ["10.20.30.0/24"]
+  # GitLab address range, reached directly on HTTPS.
+  vcsCIDRs: ["10.20.40.0/24"]
+  # Advisory hosts are not reachable: empty on purpose (see header).
+  advisoryCIDRs: []
+  # Kube-apiserver endpoint IPs for darryl and pam.
+  kubeAPIServerCIDRs: ["10.20.0.10/32"]
+
+sandbox:
+  # Sandbox namespace must exist with the restricted Pod Security label.
+  enabled: true
+  # Namespace name.
+  namespace: code-squad-sandbox
+  # Mirror of the sandbox image.
+  image: registry.internal.example/platform/code-squad-sandbox-node:0.1.0
+  # Sandbox reaches the proxy only, on its port.
+  allowedEgressCIDRs: ["10.96.0.0/16"]
+  allowedEgressPorts: [3128]
+
+devops:
+  # darryl reads the listed namespaces.
+  allowedNamespaces: ["payments"]
+  # Keep cluster-wide read off.
+  clusterWide: false
+
+config:
+  org:
+    # Security posture for an air-gapped run: no live intel sources, offline mode allowed.
+    security:
+      intel_sources: []
+      offline_fail_mode: unverified
+  projects: {}

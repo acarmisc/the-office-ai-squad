@@ -1,0 +1,24 @@
+# Org configuration (squad.yaml). Mounted as a directory at /etc/squad, so kubelet
+# refreshes the file in place and the application hot-reloads it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-squad-config
+  namespace: {{ include "code-squad.namespace" . }}
+  labels:
+    {{- include "code-squad.labels" . | nindent 4 }}
+data:
+  squad.yaml: |
+    {{- toYaml .Values.config.org | nindent 4 }}
+---
+# Project registry (projects.yaml). Mounted at /etc/squad/projects.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-squad-projects
+  namespace: {{ include "code-squad.namespace" . }}
+  labels:
+    {{- include "code-squad.labels" . | nindent 4 }}
+data:
+  projects.yaml: |
+    {{- toYaml .Values.config.projects | nindent 4 }}

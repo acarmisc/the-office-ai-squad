@@ -1,0 +1,83 @@
+# Local demo: the six agents plus an offline fake LLM, all from the code-squad:dev image.
+#
+#   docker compose -f deploy/compose.yaml up --build
+#
+# Agents are reachable on the host at http://127.0.0.1:8081 (michael) through 8086 (pam).
+# Each container runs read-only, as uid 10001, with no capabilities and no-new-privileges.
+name: code-squad
+
+x-agent: &agent
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  image: code-squad:dev
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+x-agent-env: &agent-env
+  LLM_BASE_URL: http://fake-llm:4000
+  LLM_API_KEY: fake-key-for-local-demo
+  # Placeholder: directory of scripted fake-model responses, used by the offline demo.
+  SQUAD_FAKE_MODEL_SCRIPT_DIR: /app/deploy/fake_llm/scripts
+
+services:
+  fake-llm:
+    <<: *agent
+    command: ["python", "-m", "deploy.fake_llm"]
+    # Listens on port 4000 inside the compose network; not published to the host.
+
+  michael:
+    <<: *agent
+    ports:
+      - "8081:8080"
+    environment:
+      <<: *agent-env
+      AGENT_NAME: michael
+      ORCHESTRATOR_SPECIALIST_URLS: "jim=http://jim:8080,angela=http://angela:8080,dwight=http://dwight:8080,darryl=http://darryl:8080,pam=http://pam:8080"
+
+  jim:
+    <<: *agent
+    ports:
+      - "8082:8080"
+    environment:
+      <<: *agent-env
+      AGENT_NAME: jim
+
+  angela:
+    <<: *agent
+    ports:
+      - "8083:8080"
+    environment:
+      <<: *agent-env
+      AGENT_NAME: angela
+
+  dwight:
+    <<: *agent
+    ports:
+      - "8084:8080"
+    environment:
+      <<: *agent-env
+      AGENT_NAME: dwight
+
+  darryl:
+    <<: *agent
+    ports:
+      - "8085:8080"
+    environment:
+      <<: *agent-env
+      AGENT_NAME: darryl
+
+  pam:
+    <<: *agent
+    ports:
+      - "8086:8080"
+    environment:
+      <<: *agent-env
+      AGENT_NAME: pam
