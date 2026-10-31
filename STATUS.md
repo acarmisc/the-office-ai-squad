@@ -2,12 +2,12 @@
 
 Resume cold from here. The full brief is in `docs/BRIEF.md`; ADRs in `docs/decisions/`.
 
-Current milestone: **M1 — Platform core**
+Current milestone: **M2 — VCS providers + findings pipeline** (M3 in parallel)
 
 | # | Milestone | State |
 |---|---|---|
 | M0 | Repo bootstrap | done |
-| M1 | Platform core | in progress |
+| M1 | Platform core | done |
 | M2 | VCS providers + findings pipeline | todo |
 | M3 | Configuration system | todo |
 | M4 | Skills system | todo |
