@@ -1,0 +1,26 @@
+{
+  "number": 50,
+  "title": "Fix greeting",
+  "body": "Body",
+  "state": "open",
+  "draft": true,
+  "user": {
+    "login": "alice"
+  },
+  "head": {
+    "ref": "code-squad/fix-1",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo": {
+      "full_name": "acme/web"
+    }
+  },
+  "base": {
+    "ref": "main",
+    "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "repo": {
+      "full_name": "acme/web"
+    }
+  },
+  "labels": [],
+  "html_url": "https://github.com/acme/web/pull/50"
+}

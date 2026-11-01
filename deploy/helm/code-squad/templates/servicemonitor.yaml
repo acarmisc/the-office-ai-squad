@@ -1,0 +1,22 @@
+{{- if .Values.serviceMonitor.enabled }}
+# One ServiceMonitor for the whole squad. Requires the monitoring.coreos.com CRDs.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: code-squad
+  namespace: {{ include "code-squad.namespace" . }}
+  labels:
+    {{- include "code-squad.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: code-squad
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}

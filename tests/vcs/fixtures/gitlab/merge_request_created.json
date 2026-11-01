@@ -1,0 +1,25 @@
+{
+  "title": "Draft: Fix greeting",
+  "description": "Body",
+  "state": "opened",
+  "draft": true,
+  "work_in_progress": false,
+  "author": {
+    "username": "alice",
+    "id": 2
+  },
+  "source_branch": "code-squad/fix-1",
+  "target_branch": "main",
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "diff_refs": {
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "start_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "labels": [],
+  "source_project_id": 10,
+  "target_project_id": 10,
+  "reviewers": [],
+  "iid": 50,
+  "web_url": "https://gitlab.test/acme/web/-/merge_requests/50"
+}

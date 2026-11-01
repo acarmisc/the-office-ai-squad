@@ -1,0 +1,16 @@
+[
+  {
+    "tool": "read_knowledge",
+    "input": {
+      "topic": "security/index"
+    }
+  },
+  {
+    "tool": "finish",
+    "input": {
+      "verdict": "comment",
+      "summary": "Smoke run: security reviewer completed its scripted pass. No findings were raised and nothing was published.",
+      "findings": []
+    }
+  }
+]

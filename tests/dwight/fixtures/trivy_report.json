@@ -1,0 +1,27 @@
+{
+  "SchemaVersion": 2,
+  "Results": [
+    {
+      "Target": "package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2021-23337",
+          "PkgName": "lodash",
+          "InstalledVersion": "4.17.20",
+          "FixedVersion": "4.17.21",
+          "Severity": "HIGH",
+          "Title": "lodash: command injection"
+        }
+      ]
+    },
+    {
+      "Target": "config/app.env",
+      "Class": "secret",
+      "Secrets": [
+        {"RuleID": "github-pat", "Title": "GitHub Personal Access Token", "StartLine": 4, "Match": "ghp_fake"}
+      ]
+    }
+  ]
+}

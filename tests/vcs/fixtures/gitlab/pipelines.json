@@ -1,0 +1,9 @@
+[
+  {
+    "id": 5001,
+    "status": "success",
+    "ref": "feature/greeting",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "web_url": "https://gitlab.test/acme/web/-/pipelines/5001"
+  }
+]

@@ -1,0 +1,33 @@
+code-squad {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) installed in namespace {{ include "code-squad.namespace" . }}, release {{ .Release.Name }}.
+
+Enabled agents:
+{{- range $id := splitList " " (include "code-squad.agentIds" .) }}
+{{- $agent := index $.Values.agents $id }}
+{{- if $agent.enabled }}
+  - {{ $id }}: Service code-squad-{{ $id }}:8080 (model alias {{ $agent.model }})
+{{- end }}
+{{- end }}
+
+Checks:
+{{- if not .Values.llm.baseUrl }}
+  WARNING: llm.baseUrl is empty. Agents will fail to start until it is set.
+{{- end }}
+{{- if not .Values.secrets.existingSecret }}
+  WARNING: secrets.existingSecret is empty. No secret files are mounted and LLM_API_KEY cannot be resolved.
+{{- end }}
+{{- if and .Values.sandbox.enabled (index .Values.agents "pam").enabled }}
+  The sandbox namespace {{ .Values.sandbox.namespace }} must exist before pam can create sandbox pods.
+  Label it with pod-security.kubernetes.io/enforce=restricted.
+{{- end }}
+{{- if and .Values.ingress.enabled (not (index .Values.agents "michael").enabled) }}
+  WARNING: ingress.enabled is true but michael is disabled. No ingress is rendered.
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+  NetworkPolicies are on. Fill in the CIDR lists under networkPolicy for each external destination,
+  otherwise agents get DNS only.
+{{- end }}
+
+Check the rollout:
+  kubectl -n {{ include "code-squad.namespace" . }} get deploy,svc -l app.kubernetes.io/part-of=code-squad
+  kubectl -n {{ include "code-squad.namespace" . }} port-forward svc/code-squad-michael 8080:8080
+  curl -s http://127.0.0.1:8080/ready

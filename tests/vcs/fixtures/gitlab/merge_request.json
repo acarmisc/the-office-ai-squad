@@ -1,0 +1,27 @@
+{
+  "iid": 42,
+  "web_url": "https://gitlab.test/acme/web/-/merge_requests/42",
+  "title": "Add greeting",
+  "description": "Adds a greeting to the app.",
+  "state": "opened",
+  "draft": false,
+  "work_in_progress": false,
+  "author": {
+    "username": "alice",
+    "id": 2
+  },
+  "source_branch": "feature/greeting",
+  "target_branch": "main",
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "diff_refs": {
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "start_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "labels": [
+    "frontend"
+  ],
+  "source_project_id": 10,
+  "target_project_id": 10,
+  "reviewers": []
+}

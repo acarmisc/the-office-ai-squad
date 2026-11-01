@@ -1,0 +1,210 @@
+{
+  "id": "oomkilled",
+  "title": "Worker restarts with OOMKilled after a batch-size change",
+  "symptom": "report-worker in namespace reporting restarts every few minutes since 09:00 UTC; the nightly report queue grows; the API is healthy.",
+  "namespace": "reporting",
+  "allowed_namespaces": ["reporting"],
+  "now": "2026-11-01T09:30:00+00:00",
+  "cluster": {
+    "pods": [
+      {
+        "metadata": {
+          "name": "report-worker-6f9c7d5b8-q7w2m",
+          "namespace": "reporting",
+          "labels": {"app": "report-worker"},
+          "ownerReferences": [{"kind": "ReplicaSet", "name": "report-worker-6f9c7d5b8"}]
+        },
+        "spec": {
+          "nodeName": "node-c",
+          "containers": [
+            {
+              "name": "worker",
+              "image": "registry.example.test/reporting/report-worker:3.1.0",
+              "env": [
+                {"name": "REPORT_BATCH_SIZE", "value": "5000"},
+                {"name": "DATABASE_URL", "valueFrom": {"secretKeyRef": {"name": "report-db", "key": "url"}}}
+              ],
+              "resources": {"requests": {"cpu": "500m", "memory": "256Mi"}, "limits": {"memory": "512Mi"}}
+            }
+          ]
+        },
+        "status": {
+          "phase": "Running",
+          "conditions": [{"type": "Ready", "status": "True"}],
+          "containerStatuses": [
+            {
+              "name": "worker",
+              "image": "registry.example.test/reporting/report-worker:3.1.0",
+              "ready": true,
+              "restartCount": 23,
+              "state": {"running": {"startedAt": "2026-11-01T09:12:44+00:00"}},
+              "lastState": {"terminated": {"reason": "OOMKilled", "exitCode": 137, "finishedAt": "2026-11-01T09:12:40+00:00"}}
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "report-api-5d7b9c6f4-m8k2d",
+          "namespace": "reporting",
+          "labels": {"app": "report-api"}
+        },
+        "spec": {"nodeName": "node-a", "containers": [{"name": "api", "image": "registry.example.test/reporting/report-api:3.1.0"}]},
+        "status": {
+          "phase": "Running",
+          "containerStatuses": [
+            {"name": "api", "image": "registry.example.test/reporting/report-api:3.1.0", "ready": true, "restartCount": 0, "state": {"running": {"startedAt": "2026-10-30T11:00:00+00:00"}}}
+          ]
+        }
+      }
+    ],
+    "deployments": [
+      {
+        "metadata": {"name": "report-worker", "namespace": "reporting", "labels": {"app": "report-worker"}, "annotations": {"deployment.kubernetes.io/revision": "4"}},
+        "spec": {"replicas": 1, "template": {"spec": {"containers": [{"name": "worker", "image": "registry.example.test/reporting/report-worker:3.1.0"}]}}},
+        "status": {"replicas": 1, "updatedReplicas": 1, "readyReplicas": 1, "availableReplicas": 1}
+      }
+    ],
+    "replicasets": [
+      {
+        "metadata": {
+          "name": "report-worker-6f9c7d5b8",
+          "namespace": "reporting",
+          "labels": {"app": "report-worker"},
+          "annotations": {"deployment.kubernetes.io/revision": "4", "kubernetes.io/change-cause": "raise REPORT_BATCH_SIZE to 5000 (MR 298)"},
+          "ownerReferences": [{"kind": "Deployment", "name": "report-worker"}],
+          "creationTimestamp": "2026-10-31T16:40:00+00:00"
+        },
+        "spec": {
+          "replicas": 1,
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "name": "worker",
+                  "image": "registry.example.test/reporting/report-worker:3.1.0",
+                  "env": [
+                    {"name": "REPORT_BATCH_SIZE", "value": "5000"},
+                    {"name": "DATABASE_URL", "valueFrom": {"secretKeyRef": {"name": "report-db", "key": "url"}}}
+                  ],
+                  "resources": {"requests": {"cpu": "500m", "memory": "256Mi"}, "limits": {"memory": "512Mi"}}
+                }
+              ]
+            }
+          }
+        },
+        "status": {"replicas": 1, "readyReplicas": 1}
+      },
+      {
+        "metadata": {
+          "name": "report-worker-7b4d8f6c2",
+          "namespace": "reporting",
+          "labels": {"app": "report-worker"},
+          "annotations": {"deployment.kubernetes.io/revision": "3", "kubernetes.io/change-cause": "release 3.1.0 (MR 281)"},
+          "ownerReferences": [{"kind": "Deployment", "name": "report-worker"}],
+          "creationTimestamp": "2026-10-24T08:05:00+00:00"
+        },
+        "spec": {
+          "replicas": 0,
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "name": "worker",
+                  "image": "registry.example.test/reporting/report-worker:3.1.0",
+                  "env": [
+                    {"name": "REPORT_BATCH_SIZE", "value": "1000"},
+                    {"name": "DATABASE_URL", "valueFrom": {"secretKeyRef": {"name": "report-db", "key": "url"}}}
+                  ],
+                  "resources": {"requests": {"cpu": "500m", "memory": "256Mi"}, "limits": {"memory": "512Mi"}}
+                }
+              ]
+            }
+          }
+        },
+        "status": {"replicas": 0, "readyReplicas": 0}
+      }
+    ],
+    "events": [
+      {
+        "metadata": {"name": "report-worker-6f9c7d5b8-q7w2m.backoff", "namespace": "reporting"},
+        "involvedObject": {"kind": "Pod", "name": "report-worker-6f9c7d5b8-q7w2m", "namespace": "reporting"},
+        "type": "Warning",
+        "reason": "BackOff",
+        "message": "Back-off restarting failed container worker in pod report-worker-6f9c7d5b8-q7w2m",
+        "count": 23,
+        "lastTimestamp": "2026-11-01T09:28:10+00:00"
+      },
+      {
+        "metadata": {"name": "report-worker-6f9c7d5b8-q7w2m.pulled", "namespace": "reporting"},
+        "involvedObject": {"kind": "Pod", "name": "report-worker-6f9c7d5b8-q7w2m", "namespace": "reporting"},
+        "type": "Normal",
+        "reason": "Pulled",
+        "message": "Container image registry.example.test/reporting/report-worker:3.1.0 already present on machine",
+        "count": 1,
+        "lastTimestamp": "2026-11-01T09:12:44+00:00"
+      }
+    ]
+  },
+  "logs": {
+    "report-worker-6f9c7d5b8-q7w2m/worker/current": "2026-11-01T09:12:44Z INFO worker started batch size 5000\n2026-11-01T09:12:51Z INFO batch 4180 of 9000 loaded: 5000 rows\n2026-11-01T09:12:58Z INFO batch 4181 of 9000 loaded: 5000 rows\n",
+    "report-worker-6f9c7d5b8-q7w2m/worker/previous": "2026-11-01T09:06:12Z INFO worker started batch size 5000\n2026-11-01T09:08:03Z INFO batch 2210 of 9000 loaded: 5000 rows\n2026-11-01T09:08:09Z INFO batch 2211 of 9000 loaded: 5000 rows\n"
+  },
+  "log_errors": [],
+  "metrics": [
+    {
+      "metadata": {"name": "report-worker-6f9c7d5b8-q7w2m", "namespace": "reporting"},
+      "containers": [{"name": "worker", "usage": {"cpu": "412m", "memory": "508Mi"}}]
+    },
+    {
+      "metadata": {"name": "report-api-5d7b9c6f4-m8k2d", "namespace": "reporting"},
+      "containers": [{"name": "api", "usage": {"cpu": "35m", "memory": "180Mi"}}]
+    }
+  ],
+  "script": [
+    {"tool": "k8s_get", "input": {"kind": "pods", "namespace": "reporting", "selector": "app=report-worker"}},
+    {"tool": "k8s_describe", "input": {"kind": "pods", "namespace": "reporting", "name": "report-worker-6f9c7d5b8-q7w2m"}},
+    {"tool": "k8s_top", "input": {"namespace": "reporting"}},
+    {"tool": "rollout_history", "input": {"namespace": "reporting", "deployment": "report-worker"}},
+    {"tool": "k8s_logs", "input": {"pod": "report-worker-6f9c7d5b8-q7w2m", "namespace": "reporting", "container": "worker", "previous": true, "tail": 40}},
+    {
+      "tool": "finish",
+      "input": {
+        "verdict": "comment",
+        "summary": "Root cause (medium-high confidence): the worker container exceeds its 512Mi memory limit and is OOMKilled (exit 137). Revision 4 raised REPORT_BATCH_SIZE from 1000 to 5000 with the memory limit unchanged, and the worker now sits at about 508Mi before each kill.",
+        "findings": [],
+        "data": {
+          "root_cause": "Revision 4 (MR 298) raised REPORT_BATCH_SIZE to 5000 without raising the 512Mi memory limit; the worker is OOMKilled (exit 137) when a batch peaks.",
+          "confidence": "medium",
+          "evidence": [
+            "k8s_describe pods: lastState 'terminated: OOMKilled exit 137', restartCount 23, limits memory 512Mi",
+            "k8s_top: report-worker memory 508Mi, close to the 512Mi limit",
+            "rollout_history: revision 4 change cause 'raise REPORT_BATCH_SIZE to 5000 (MR 298)'; revision 3 used batch size 1000 (env value masked by darryl)",
+            "k8s_logs previous container: batches of 5000 rows are the last lines before the restart"
+          ],
+          "hypotheses": [
+            {"hypothesis": "Batch size increase exceeds the memory limit", "status": "confirmed", "evidence": "OOMKilled with memory near the limit after the revision-4 change."},
+            {"hypothesis": "Memory leak across batches", "status": "untested", "evidence": "Would need memory samples over time; only one top sample is available."},
+            {"hypothesis": "Node memory pressure evicting the pod", "status": "refuted", "evidence": "The container status reason is OOMKilled, not Evicted, and the pod stays on node-c."}
+          ],
+          "remediation": [
+            "1. Either raise the memory limit of the worker container to a value sized for batch 5000, or lower REPORT_BATCH_SIZE back to 1000. Owner: reporting team. Verify: no OOMKilled in lastState over 30 minutes, memory below 80 percent of the limit.",
+            "2. Capture memory samples over a full nightly run to test the leak hypothesis."
+          ],
+          "rollback": "Restore revision 3 (batch size 1000) through version control or roll back the deployment to revision 3.",
+          "not_checked": [
+            "Memory trend over time (only one top sample)",
+            "Batch size value, which darryl masks as an environment value",
+            "Node-level memory metrics"
+          ]
+        }
+      }
+    }
+  ],
+  "root_cause_keywords": ["OOMKilled", "512Mi"],
+  "evidence": [
+    "OOMKilled",
+    "exit 137",
+    "508Mi"
+  ]
+}

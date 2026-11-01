@@ -1,0 +1,12 @@
+[
+  {
+    "RuleID": "generic-api-key",
+    "Description": "Generic API Key",
+    "File": "config/settings.py",
+    "StartLine": 12,
+    "EndLine": 12,
+    "Secret": "fake-token-for-tests",
+    "Match": "API_KEY = 'fake-token-for-tests'",
+    "Fingerprint": "config/settings.py:generic-api-key:12"
+  }
+]

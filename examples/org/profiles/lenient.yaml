@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=../../../schemas/squad-config.schema.json
+# Lenient profile for prototypes: fewer, higher-confidence comments. It only changes
+# free settings, so a repository may extend it.
+review:
+  min_confidence_to_publish: high
+  min_severity_inline: major
+  verdict:
+    major_threshold: 5
+trigger:
+  skip_draft: true

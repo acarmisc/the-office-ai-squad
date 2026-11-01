@@ -1,0 +1,32 @@
+# Version control and CI
+.git
+.github
+.gitlab-ci.yml
+
+# Tool caches and local environments
+.venv
+**/.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+**/__pycache__
+**/*.pyc
+.env
+.env.*
+!.env.example
+
+# Build outputs and documentation builds
+site/
+dist/
+build/
+*.egg-info
+
+# Evaluation reports are generated artifacts
+eval/reports/
+
+# Deployment assets that are not part of the runtime image
+deploy/helm/
+deploy/kind/
+deploy/secrets-examples/
+deploy/observability/
+deploy/compose.yaml

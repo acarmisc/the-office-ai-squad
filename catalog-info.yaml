@@ -1,0 +1,595 @@
+# Backstage catalog for Code Squad.
+# Owner: the owner is configurable. Replace group:default/platform-team with the owning group
+# before registering this file. Every entity uses the same owner so the catalog stays simple.
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: code-squad
+  title: Code Squad
+  description: "Specialised review and engineering agents, portable to any Kubernetes cluster."
+  tags: [agents, code-review, llm]
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  owner: group:default/platform-team
+  domain: developer-tools
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: code-squad-michael
+  title: Code Squad michael
+  description: "Orchestrator: receives webhooks, routes requests, fans out to specialists and publishes one consolidated review."
+  tags: [agents, code-squad, michael]
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: acarmisc/the-office-ai-squad
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  providesApis:
+    - code-squad-michael-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: code-squad-michael-api
+  title: Code Squad michael API
+  description: "HTTP contract of the michael agent (probes, metrics and invocations; webhooks)."
+  tags: [agents, openapi, michael]
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: code-squad michael API
+      version: 0.1.0
+      description: HTTP contract of the michael agent. See the documentation for the request and result schema.
+    servers:
+      - url: http://code-squad-michael.code-squad.svc:8080
+    paths:
+      /ping:
+        get:
+          summary: Liveness probe
+          operationId: michaelPing
+          responses:
+            '200':
+              description: Process is alive
+      /ready:
+        get:
+          summary: Readiness probe. 503 when the agent specification did not load.
+          operationId: michaelReady
+          responses:
+            '200':
+              description: Agent loaded
+            '503':
+              description: Agent not loaded
+      /metrics:
+        get:
+          summary: Prometheus metrics
+          operationId: michaelMetrics
+          responses:
+            '200':
+              description: Prometheus text exposition
+      /invocations:
+        post:
+          summary: Run the agent synchronously, or asynchronously with Prefer respond-async
+          operationId: michaelInvoke
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [prompt]
+                  additionalProperties: false
+                  properties:
+                    prompt:
+                      type: string
+                    project:
+                      type: string
+                    target:
+                      type: string
+                    mode:
+                      type: string
+                    post:
+                      type: boolean
+          responses:
+            '200':
+              description: Invocation result
+            '202':
+              description: Accepted for asynchronous processing (Prefer respond-async)
+            '422':
+              description: Request failed validation
+      /webhooks/gitlab:
+        post:
+          summary: GitLab webhook receiver (X-Gitlab-Token)
+          operationId: michaelWebhookGitlab
+          responses:
+            '202':
+              description: Accepted or ignored
+            '200':
+              description: Duplicate delivery
+            '401':
+              description: Invalid token
+      /webhooks/github:
+        post:
+          summary: GitHub webhook receiver (X-Hub-Signature-256)
+          operationId: michaelWebhookGithub
+          responses:
+            '202':
+              description: Accepted or ignored
+            '200':
+              description: Duplicate delivery
+            '401':
+              description: Invalid signature
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: code-squad-jim
+  title: Code Squad jim
+  description: "React and TypeScript reviewer."
+  tags: [agents, code-squad, jim]
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: acarmisc/the-office-ai-squad
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  providesApis:
+    - code-squad-jim-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: code-squad-jim-api
+  title: Code Squad jim API
+  description: "HTTP contract of the jim agent (probes, metrics and invocations)."
+  tags: [agents, openapi, jim]
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: code-squad jim API
+      version: 0.1.0
+      description: HTTP contract of the jim agent. See the documentation for the request and result schema.
+    servers:
+      - url: http://code-squad-jim.code-squad.svc:8080
+    paths:
+      /ping:
+        get:
+          summary: Liveness probe
+          operationId: jimPing
+          responses:
+            '200':
+              description: Process is alive
+      /ready:
+        get:
+          summary: Readiness probe. 503 when the agent specification did not load.
+          operationId: jimReady
+          responses:
+            '200':
+              description: Agent loaded
+            '503':
+              description: Agent not loaded
+      /metrics:
+        get:
+          summary: Prometheus metrics
+          operationId: jimMetrics
+          responses:
+            '200':
+              description: Prometheus text exposition
+      /invocations:
+        post:
+          summary: Run the agent synchronously, or asynchronously with Prefer respond-async
+          operationId: jimInvoke
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [prompt]
+                  additionalProperties: false
+                  properties:
+                    prompt:
+                      type: string
+                    project:
+                      type: string
+                    target:
+                      type: string
+                    mode:
+                      type: string
+                    post:
+                      type: boolean
+          responses:
+            '200':
+              description: Invocation result
+            '202':
+              description: Accepted for asynchronous processing (Prefer respond-async)
+            '422':
+              description: Request failed validation
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: code-squad-angela
+  title: Code Squad angela
+  description: "Java and JVM reviewer, including Spring applications."
+  tags: [agents, code-squad, angela]
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: acarmisc/the-office-ai-squad
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  providesApis:
+    - code-squad-angela-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: code-squad-angela-api
+  title: Code Squad angela API
+  description: "HTTP contract of the angela agent (probes, metrics and invocations)."
+  tags: [agents, openapi, angela]
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: code-squad angela API
+      version: 0.1.0
+      description: HTTP contract of the angela agent. See the documentation for the request and result schema.
+    servers:
+      - url: http://code-squad-angela.code-squad.svc:8080
+    paths:
+      /ping:
+        get:
+          summary: Liveness probe
+          operationId: angelaPing
+          responses:
+            '200':
+              description: Process is alive
+      /ready:
+        get:
+          summary: Readiness probe. 503 when the agent specification did not load.
+          operationId: angelaReady
+          responses:
+            '200':
+              description: Agent loaded
+            '503':
+              description: Agent not loaded
+      /metrics:
+        get:
+          summary: Prometheus metrics
+          operationId: angelaMetrics
+          responses:
+            '200':
+              description: Prometheus text exposition
+      /invocations:
+        post:
+          summary: Run the agent synchronously, or asynchronously with Prefer respond-async
+          operationId: angelaInvoke
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [prompt]
+                  additionalProperties: false
+                  properties:
+                    prompt:
+                      type: string
+                    project:
+                      type: string
+                    target:
+                      type: string
+                    mode:
+                      type: string
+                    post:
+                      type: boolean
+          responses:
+            '200':
+              description: Invocation result
+            '202':
+              description: Accepted for asynchronous processing (Prefer respond-async)
+            '422':
+              description: Request failed validation
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: code-squad-dwight
+  title: Code Squad dwight
+  description: "Security reviewer: code, configuration and dependency posture, with live vulnerability intelligence."
+  tags: [agents, code-squad, dwight]
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: acarmisc/the-office-ai-squad
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  providesApis:
+    - code-squad-dwight-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: code-squad-dwight-api
+  title: Code Squad dwight API
+  description: "HTTP contract of the dwight agent (probes, metrics and invocations)."
+  tags: [agents, openapi, dwight]
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: code-squad dwight API
+      version: 0.1.0
+      description: HTTP contract of the dwight agent. See the documentation for the request and result schema.
+    servers:
+      - url: http://code-squad-dwight.code-squad.svc:8080
+    paths:
+      /ping:
+        get:
+          summary: Liveness probe
+          operationId: dwightPing
+          responses:
+            '200':
+              description: Process is alive
+      /ready:
+        get:
+          summary: Readiness probe. 503 when the agent specification did not load.
+          operationId: dwightReady
+          responses:
+            '200':
+              description: Agent loaded
+            '503':
+              description: Agent not loaded
+      /metrics:
+        get:
+          summary: Prometheus metrics
+          operationId: dwightMetrics
+          responses:
+            '200':
+              description: Prometheus text exposition
+      /invocations:
+        post:
+          summary: Run the agent synchronously, or asynchronously with Prefer respond-async
+          operationId: dwightInvoke
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [prompt]
+                  additionalProperties: false
+                  properties:
+                    prompt:
+                      type: string
+                    project:
+                      type: string
+                    target:
+                      type: string
+                    mode:
+                      type: string
+                    post:
+                      type: boolean
+          responses:
+            '200':
+              description: Invocation result
+            '202':
+              description: Accepted for asynchronous processing (Prefer respond-async)
+            '422':
+              description: Request failed validation
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: code-squad-darryl
+  title: Code Squad darryl
+  description: "DevOps specialist: CI/CD, container, IaC and manifest review, and read-only troubleshooting."
+  tags: [agents, code-squad, darryl]
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: acarmisc/the-office-ai-squad
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  providesApis:
+    - code-squad-darryl-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: code-squad-darryl-api
+  title: Code Squad darryl API
+  description: "HTTP contract of the darryl agent (probes, metrics and invocations)."
+  tags: [agents, openapi, darryl]
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: code-squad darryl API
+      version: 0.1.0
+      description: HTTP contract of the darryl agent. See the documentation for the request and result schema.
+    servers:
+      - url: http://code-squad-darryl.code-squad.svc:8080
+    paths:
+      /ping:
+        get:
+          summary: Liveness probe
+          operationId: darrylPing
+          responses:
+            '200':
+              description: Process is alive
+      /ready:
+        get:
+          summary: Readiness probe. 503 when the agent specification did not load.
+          operationId: darrylReady
+          responses:
+            '200':
+              description: Agent loaded
+            '503':
+              description: Agent not loaded
+      /metrics:
+        get:
+          summary: Prometheus metrics
+          operationId: darrylMetrics
+          responses:
+            '200':
+              description: Prometheus text exposition
+      /invocations:
+        post:
+          summary: Run the agent synchronously, or asynchronously with Prefer respond-async
+          operationId: darrylInvoke
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [prompt]
+                  additionalProperties: false
+                  properties:
+                    prompt:
+                      type: string
+                    project:
+                      type: string
+                    target:
+                      type: string
+                    mode:
+                      type: string
+                    post:
+                      type: boolean
+          responses:
+            '200':
+              description: Invocation result
+            '202':
+              description: Accepted for asynchronous processing (Prefer respond-async)
+            '422':
+              description: Request failed validation
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: code-squad-pam
+  title: Code Squad pam
+  description: "Frontend engineer: implements tasks in an isolated sandbox and opens a change request; advisor mode."
+  tags: [agents, code-squad, pam]
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    github.com/project-slug: acarmisc/the-office-ai-squad
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  providesApis:
+    - code-squad-pam-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: code-squad-pam-api
+  title: Code Squad pam API
+  description: "HTTP contract of the pam agent (probes, metrics and invocations)."
+  tags: [agents, openapi, pam]
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: code-squad
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: code-squad pam API
+      version: 0.1.0
+      description: HTTP contract of the pam agent. See the documentation for the request and result schema.
+    servers:
+      - url: http://code-squad-pam.code-squad.svc:8080
+    paths:
+      /ping:
+        get:
+          summary: Liveness probe
+          operationId: pamPing
+          responses:
+            '200':
+              description: Process is alive
+      /ready:
+        get:
+          summary: Readiness probe. 503 when the agent specification did not load.
+          operationId: pamReady
+          responses:
+            '200':
+              description: Agent loaded
+            '503':
+              description: Agent not loaded
+      /metrics:
+        get:
+          summary: Prometheus metrics
+          operationId: pamMetrics
+          responses:
+            '200':
+              description: Prometheus text exposition
+      /invocations:
+        post:
+          summary: Run the agent synchronously, or asynchronously with Prefer respond-async
+          operationId: pamInvoke
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: [prompt]
+                  additionalProperties: false
+                  properties:
+                    prompt:
+                      type: string
+                    project:
+                      type: string
+                    target:
+                      type: string
+                    mode:
+                      type: string
+                    post:
+                      type: boolean
+          responses:
+            '200':
+              description: Invocation result
+            '202':
+              description: Accepted for asynchronous processing (Prefer respond-async)
+            '422':
+              description: Request failed validation

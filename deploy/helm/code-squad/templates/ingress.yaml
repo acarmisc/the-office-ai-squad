@@ -1,0 +1,51 @@
+{{- /*
+Ingress for michael's webhook endpoints only. No other path is ever routed to the squad.
+*/ -}}
+{{- $root := . -}}
+{{- $gitlab := .Values.webhooks.gitlab.enabled -}}
+{{- $github := .Values.webhooks.github.enabled -}}
+{{- if and .Values.ingress.enabled (index .Values.agents "michael").enabled (or $gitlab $github) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: code-squad-webhooks
+  namespace: {{ include "code-squad.namespace" $root }}
+  labels:
+    {{- include "code-squad.agentLabels" (dict "id" "michael" "root" $root) | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - {{- with .Values.ingress.host }}
+      host: {{ . | quote }}
+      {{- end }}
+      http:
+        paths:
+          {{- if $gitlab }}
+          - path: /webhooks/gitlab
+            pathType: Exact
+            backend:
+              service:
+                name: code-squad-michael
+                port:
+                  name: http
+          {{- end }}
+          {{- if $github }}
+          - path: /webhooks/github
+            pathType: Exact
+            backend:
+              service:
+                name: code-squad-michael
+                port:
+                  name: http
+          {{- end }}
+{{- end }}

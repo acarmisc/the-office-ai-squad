@@ -1,0 +1,12 @@
+[
+  {
+    "old_path": "assets/logo.png",
+    "new_path": "assets/logo.png",
+    "new_file": false,
+    "renamed_file": false,
+    "deleted_file": false,
+    "too_large": true,
+    "binary": true,
+    "diff": ""
+  }
+]

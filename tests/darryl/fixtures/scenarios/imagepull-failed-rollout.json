@@ -1,0 +1,212 @@
+{
+  "id": "imagepull-failed-rollout",
+  "title": "Rollout stuck because the new image tag cannot be pulled",
+  "symptom": "api deployment in namespace payments has been rolling out since 11:20 UTC; new pods show ImagePullBackOff; customers see no errors yet but capacity is reduced.",
+  "namespace": "payments",
+  "allowed_namespaces": ["payments"],
+  "now": "2026-11-01T11:45:00+00:00",
+  "cluster": {
+    "pods": [
+      {
+        "metadata": {
+          "name": "api-5f7c9d8b6-xk2lq",
+          "namespace": "payments",
+          "labels": {"app": "api"},
+          "ownerReferences": [{"kind": "ReplicaSet", "name": "api-5f7c9d8b6"}]
+        },
+        "spec": {
+          "nodeName": "node-b",
+          "containers": [
+            {
+              "name": "api",
+              "image": "registry.example.test/payments/api:v3.8.0-rc1",
+              "ports": [{"containerPort": 9000}],
+              "env": [{"name": "PAYMENTS_REGION", "value": "eu-west-1"}],
+              "readinessProbe": {"httpGet": {"path": "/ready", "port": 9000}, "periodSeconds": 5}
+            }
+          ]
+        },
+        "status": {
+          "phase": "Pending",
+          "conditions": [{"type": "Ready", "status": "False", "reason": "ContainersNotReady"}],
+          "containerStatuses": [
+            {
+              "name": "api",
+              "image": "registry.example.test/payments/api:v3.8.0-rc1",
+              "ready": false,
+              "restartCount": 0,
+              "state": {"waiting": {"reason": "ImagePullBackOff", "message": "Back-off pulling image \"registry.example.test/payments/api:v3.8.0-rc1\""}}
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "name": "api-6b8e4d7c9-7hz4p",
+          "namespace": "payments",
+          "labels": {"app": "api"},
+          "ownerReferences": [{"kind": "ReplicaSet", "name": "api-6b8e4d7c9"}]
+        },
+        "spec": {
+          "nodeName": "node-a",
+          "containers": [
+            {"name": "api", "image": "registry.example.test/payments/api:v3.7.4", "ports": [{"containerPort": 9000}]}
+          ]
+        },
+        "status": {
+          "phase": "Running",
+          "conditions": [{"type": "Ready", "status": "True"}],
+          "containerStatuses": [
+            {"name": "api", "image": "registry.example.test/payments/api:v3.7.4", "ready": true, "restartCount": 0, "state": {"running": {"startedAt": "2026-10-29T06:00:00+00:00"}}}
+          ]
+        }
+      }
+    ],
+    "deployments": [
+      {
+        "metadata": {"name": "api", "namespace": "payments", "labels": {"app": "api"}, "annotations": {"deployment.kubernetes.io/revision": "12"}},
+        "spec": {
+          "replicas": 3,
+          "strategy": {"type": "RollingUpdate"},
+          "template": {
+            "metadata": {"labels": {"app": "api"}},
+            "spec": {
+              "containers": [
+                {"name": "api", "image": "registry.example.test/payments/api:v3.8.0-rc1", "ports": [{"containerPort": 9000}]}
+              ]
+            }
+          }
+        },
+        "status": {
+          "replicas": 4,
+          "updatedReplicas": 1,
+          "readyReplicas": 3,
+          "availableReplicas": 3,
+          "conditions": [
+            {"type": "Available", "status": "True", "reason": "MinimumReplicasAvailable", "message": "Deployment has minimum availability."},
+            {"type": "Progressing", "status": "True", "reason": "ReplicaSetUpdated", "message": "ReplicaSet \"api-5f7c9d8b6\" is progressing."}
+          ]
+        }
+      }
+    ],
+    "replicasets": [
+      {
+        "metadata": {
+          "name": "api-5f7c9d8b6",
+          "namespace": "payments",
+          "labels": {"app": "api"},
+          "annotations": {"deployment.kubernetes.io/revision": "12", "kubernetes.io/change-cause": "release v3.8.0-rc1 (MR 977)"},
+          "ownerReferences": [{"kind": "Deployment", "name": "api"}],
+          "creationTimestamp": "2026-11-01T11:20:00+00:00"
+        },
+        "spec": {
+          "replicas": 1,
+          "template": {
+            "spec": {
+              "containers": [{"name": "api", "image": "registry.example.test/payments/api:v3.8.0-rc1", "ports": [{"containerPort": 9000}]}]
+            }
+          }
+        },
+        "status": {"replicas": 1, "readyReplicas": 0}
+      },
+      {
+        "metadata": {
+          "name": "api-6b8e4d7c9",
+          "namespace": "payments",
+          "labels": {"app": "api"},
+          "annotations": {"deployment.kubernetes.io/revision": "11", "kubernetes.io/change-cause": "release v3.7.4 (MR 961)"},
+          "ownerReferences": [{"kind": "Deployment", "name": "api"}],
+          "creationTimestamp": "2026-10-29T05:50:00+00:00"
+        },
+        "spec": {
+          "replicas": 3,
+          "template": {
+            "spec": {
+              "containers": [{"name": "api", "image": "registry.example.test/payments/api:v3.7.4", "ports": [{"containerPort": 9000}]}]
+            }
+          }
+        },
+        "status": {"replicas": 3, "readyReplicas": 3}
+      }
+    ],
+    "events": [
+      {
+        "metadata": {"name": "api-5f7c9d8b6-xk2lq.failed", "namespace": "payments"},
+        "involvedObject": {"kind": "Pod", "name": "api-5f7c9d8b6-xk2lq", "namespace": "payments"},
+        "type": "Warning",
+        "reason": "Failed",
+        "message": "Failed to pull image \"registry.example.test/payments/api:v3.8.0-rc1\": rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown: manifest unknown",
+        "count": 9,
+        "lastTimestamp": "2026-11-01T11:44:30+00:00"
+      },
+      {
+        "metadata": {"name": "api-5f7c9d8b6-xk2lq.backoff", "namespace": "payments"},
+        "involvedObject": {"kind": "Pod", "name": "api-5f7c9d8b6-xk2lq", "namespace": "payments"},
+        "type": "Normal",
+        "reason": "BackOff",
+        "message": "Back-off pulling image \"registry.example.test/payments/api:v3.8.0-rc1\"",
+        "count": 14,
+        "lastTimestamp": "2026-11-01T11:44:50+00:00"
+      },
+      {
+        "metadata": {"name": "api.scaled", "namespace": "payments"},
+        "involvedObject": {"kind": "Deployment", "name": "api", "namespace": "payments"},
+        "type": "Normal",
+        "reason": "ScalingReplicaSet",
+        "message": "Scaled up replica set api-5f7c9d8b6 to 1",
+        "count": 1,
+        "lastTimestamp": "2026-11-01T11:20:05+00:00"
+      }
+    ]
+  },
+  "logs": {},
+  "log_errors": ["api-5f7c9d8b6-xk2lq/api/current"],
+  "metrics": null,
+  "script": [
+    {"tool": "k8s_get", "input": {"kind": "deployments", "namespace": "payments", "name": "api"}},
+    {"tool": "k8s_get", "input": {"kind": "pods", "namespace": "payments", "selector": "app=api"}},
+    {"tool": "k8s_describe", "input": {"kind": "pods", "namespace": "payments", "name": "api-5f7c9d8b6-xk2lq"}},
+    {"tool": "k8s_events", "input": {"namespace": "payments", "since_minutes": 120}},
+    {"tool": "k8s_logs", "input": {"pod": "api-5f7c9d8b6-xk2lq", "namespace": "payments", "container": "api", "tail": 50}},
+    {"tool": "rollout_history", "input": {"namespace": "payments", "deployment": "api"}},
+    {
+      "tool": "finish",
+      "input": {
+        "verdict": "comment",
+        "summary": "Root cause (high confidence): revision 12 of deployment api cannot start because its image tag registry.example.test/payments/api:v3.8.0-rc1 cannot be pulled (manifest unknown). The tag is missing from the registry or was never pushed. The rollout is stuck with one new pod; the three v3.7.4 pods still serve traffic.",
+        "findings": [],
+        "data": {
+          "root_cause": "Image tag v3.8.0-rc1 of registry.example.test/payments/api does not exist in the registry (manifest unknown), so the new revision 12 pod stays in ImagePullBackOff and the rollout stalls.",
+          "confidence": "high",
+          "evidence": [
+            "k8s_get pods: api-5f7c9d8b6-xk2lq container api waiting ImagePullBackOff, image registry.example.test/payments/api:v3.8.0-rc1",
+            "k8s_events: Warning Failed 'manifest unknown' for the v3.8.0-rc1 tag, repeated 9 times",
+            "k8s_logs: the container never started, so the API returns no logs (400 Bad Request)",
+            "k8s_get deployments api: revision 12, updatedReplicas 1, availableReplicas 3 (old revision still available)"
+          ],
+          "hypotheses": [
+            {"hypothesis": "The image tag was never pushed or was deleted", "status": "confirmed", "evidence": "Registry error 'manifest unknown' on pull for exactly this tag."},
+            {"hypothesis": "Registry authentication failure", "status": "refuted", "evidence": "The error is manifest unknown, not unauthorized."},
+            {"hypothesis": "Application defect in v3.8.0-rc1", "status": "untested", "evidence": "The image never ran, so application behaviour cannot be observed."}
+          ],
+          "remediation": [
+            "1. Confirm in the registry that the v3.8.0-rc1 tag exists. If it is missing, rebuild and push it from the release commit, or correct the tag in the deployment through version control. Owner: payments release owner. Verify: new pod reaches Running and Ready.",
+            "2. If the release cannot be fixed quickly, pin the deployment back to v3.7.4 through version control. Verify: rollout completes and all pods run v3.7.4."
+          ],
+          "rollback": "Pin the image to v3.7.4 (revision 11) through version control; the old revision is still available.",
+          "not_checked": [
+            "Registry contents (registry access is outside darryl's tools)",
+            "Application behaviour of v3.8.0-rc1 (the image never started)",
+            "Customer-facing error rates (no metrics backend is configured in this scenario)"
+          ]
+        }
+      }
+    }
+  ],
+  "root_cause_keywords": ["v3.8.0-rc1", "manifest unknown"],
+  "evidence": [
+    "ImagePullBackOff",
+    "manifest unknown",
+    "v3.8.0-rc1"
+  ]
+}

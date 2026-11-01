@@ -1,0 +1,78 @@
+# PrometheusRule for the code-squad metrics (Prometheus Operator CRD).
+# Metric names follow the contract in docs/BRIEF.md section 4.6. Thresholds are starting points:
+# tune them per deployment with the recording of your baseline.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: code-squad-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: code-squad
+    # Must match the ruleSelector of your Prometheus instance.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: code-squad.invocations
+      rules:
+        - alert: CodeSquadHighFailureRatio
+          expr: |
+            (
+              sum by (agent) (rate(squad_invocations_total{status="failed"}[15m]))
+              /
+              sum by (agent) (rate(squad_invocations_total[15m]))
+            ) > 0.2
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "More than 20% of {{ $labels.agent }} invocations are failing"
+            description: "Failure ratio for agent {{ $labels.agent }} has been above 20% for 15 minutes. Check agent logs and the LLM gateway."
+        - alert: CodeSquadManyIncomplete
+          expr: |
+            (
+              sum by (agent) (rate(squad_invocations_total{status="incomplete"}[30m]))
+              /
+              sum by (agent) (rate(squad_invocations_total[30m]))
+            ) > 0.3
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Many {{ $labels.agent }} invocations end incomplete"
+            description: "More than 30% of {{ $labels.agent }} invocations stop incomplete (budget, iteration or timeout limits). Review limits and recent prompt or model changes."
+        - alert: CodeSquadHighInvocationP95
+          expr: |
+            histogram_quantile(0.95, sum by (le, agent) (rate(squad_invocation_seconds_bucket[10m]))) > 300
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 invocation latency is high for {{ $labels.agent }}"
+            description: "p95 latency of {{ $labels.agent }} invocations has been above 300 seconds for 15 minutes."
+        - alert: CodeSquadNoMichaelInvocations
+          expr: |
+            (sum(increase(squad_invocations_total{agent="michael"}[1h])) or vector(0)) == 0
+          for: 0m
+          labels:
+            severity: info
+          annotations:
+            summary: "No orchestrator (michael) invocations in the last hour"
+            description: "michael has received no invocations for one hour. This is informational: it is expected outside working hours or when no webhooks are configured."
+    - name: code-squad.platform
+      rules:
+        - alert: CodeSquadConfigReloadFailures
+          expr: increase(squad_config_reload_failures_total[15m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Config reload failed on {{ $labels.pod }}"
+            description: "A squad.yaml or projects.yaml reload failed. The previous good configuration is still active. Check the config files and the pod logs."
+        - alert: CodeSquadVcsErrors
+          expr: sum by (provider, operation) (rate(squad_vcs_errors_total[10m])) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "VCS errors from {{ $labels.provider }} on {{ $labels.operation }}"
+            description: "Sustained VCS API errors for {{ $labels.provider }} ({{ $labels.operation }}). Check tokens, rate limits and host reachability."

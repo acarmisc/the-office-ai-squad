@@ -1,0 +1,374 @@
+# yaml-language-server: $schema=values.schema.json
+#
+# Default values for the code-squad chart.
+#
+# Keys marked REQUIRED must be overridden for a real install. The defaults render, so
+# `helm lint` passes, but the pods will not start until those values point at real
+# resources. Complete, tested scenarios live in values-examples/.
+
+# Container image shared by all agents. AGENT_NAME selects the role at runtime.
+image:
+  # REQUIRED. Repository of the image built from deploy/Dockerfile.
+  repository: ghcr.io/example/code-squad
+  # Image tag. An empty string means Chart.appVersion.
+  tag: ""
+  # imagePullPolicy: IfNotPresent, Always or Never (use Never with `kind load`).
+  pullPolicy: IfNotPresent
+
+# Secrets used to pull the image from a private registry.
+# Example:
+#   imagePullSecrets:
+#     - name: registry-pull
+imagePullSecrets: []
+
+global:
+  # Render every object into this namespace instead of the release namespace.
+  namespaceOverride: ""
+
+# Per-agent settings. The keys are fixed:
+#   michael  orchestrator (receives webhooks, fans out to specialists)
+#   jim      React reviewer
+#   angela   Java reviewer
+#   dwight   security reviewer (needs advisory egress, see networkPolicy)
+#   darryl   devops reviewer (read-only Kubernetes access, see devops)
+#   pam      implementer (runs in sandbox pods, see sandbox)
+# values.schema.json rejects any other key under agents.
+agents:
+  michael:
+    # Render the Deployment, Service, ServiceAccount, NetworkPolicy and PDB/HPA for this agent.
+    enabled: true
+    # Replica count when hpa.enabled is false. Ignored when the HPA manages the Deployment.
+    replicas: 1
+    # Container resources.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    # Extra container env entries (standard EnvVar list), appended after the generated ones.
+    env: []
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
+    model: haiku-5-5
+
+  jim:
+    # Render the Deployment, Service, ServiceAccount, NetworkPolicy and PDB/HPA for this agent.
+    enabled: true
+    # Replica count when hpa.enabled is false. Ignored when the HPA manages the Deployment.
+    replicas: 1
+    # Container resources.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    # Extra container env entries (standard EnvVar list), appended after the generated ones.
+    env: []
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
+    model: sonnet-5-5
+
+  angela:
+    # Render the Deployment, Service, ServiceAccount, NetworkPolicy and PDB/HPA for this agent.
+    enabled: true
+    # Replica count when hpa.enabled is false. Ignored when the HPA manages the Deployment.
+    replicas: 1
+    # Container resources.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    # Extra container env entries (standard EnvVar list), appended after the generated ones.
+    env: []
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
+    model: sonnet-5-5
+
+  dwight:
+    # Render the Deployment, Service, ServiceAccount, NetworkPolicy and PDB/HPA for this agent.
+    enabled: true
+    # Replica count when hpa.enabled is false. Ignored when the HPA manages the Deployment.
+    replicas: 1
+    # Container resources.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    # Extra container env entries (standard EnvVar list), appended after the generated ones.
+    env: []
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
+    model: sonnet-5-5
+
+  darryl:
+    # Render the Deployment, Service, ServiceAccount, NetworkPolicy and PDB/HPA for this agent.
+    enabled: true
+    # Replica count when hpa.enabled is false. Ignored when the HPA manages the Deployment.
+    replicas: 1
+    # Container resources.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    # Extra container env entries (standard EnvVar list), appended after the generated ones.
+    env: []
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
+    model: sonnet-5-5
+
+  pam:
+    # Render the Deployment, Service, ServiceAccount, NetworkPolicy and PDB/HPA for this agent.
+    enabled: true
+    # Replica count when hpa.enabled is false. Ignored when the HPA manages the Deployment.
+    replicas: 1
+    # Container resources. pam holds larger working sets (repository checkouts, builds).
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+    # Extra container env entries (standard EnvVar list), appended after the generated ones.
+    env: []
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
+    model: sonnet-5-5
+
+# LLM gateway (OpenAI-compatible endpoint). Every agent gets these values.
+llm:
+  # REQUIRED. Base URL of the LLM gateway, exposed as LLM_BASE_URL.
+  baseUrl: ""
+  apiKeySecret:
+    # Secret that holds the gateway key. Empty means secrets.existingSecret.
+    name: ""
+    # Key inside that Secret, exposed as LLM_API_KEY through secretKeyRef.
+    key: llm-api-key
+
+# Version control host settings. Every agent gets these values.
+vcs:
+  # gitlab, github or auto (auto infers the provider from baseUrl or the webhook source).
+  provider: auto
+  # Base URL of a self-managed or GHES host, exposed as VCS_BASE_URL. Empty for SaaS defaults.
+  baseUrl: ""
+
+secrets:
+  # REQUIRED. Name of an existing Secret, one key per secret file. It is mounted read-only
+  # at /var/run/secrets/squad (SECRETS_DIR). Keys are listed in deploy/secrets-examples/.
+  existingSecret: code-squad-secrets
+
+api:
+  # Optional shared bearer token for POST /invocations and GET /jobs/{id} on every agent. michael
+  # also sends it to the specialists. Empty means no token check: each pod logs one warning.
+  # Webhook routes keep their own signature checks and are never gated by this token.
+  tokenSecret:
+    # Secret that holds the token. Empty disables the check.
+    name: ""
+    # Key inside that Secret, exposed as SQUAD_API_TOKEN through secretKeyRef.
+    key: api-token
+
+# Org-level configuration (layer 2 of the config model) and the project registry (layer 3).
+config:
+  # Roll the Deployments when the config ConfigMaps change. Off by default, because the
+  # org and project files are hot-reloaded without a restart.
+  restartOnChange: false
+  # Free-form org configuration. Rendered verbatim as ConfigMap code-squad-config, key
+  # squad.yaml, mounted at /etc/squad/squad.yaml (SQUAD_CONFIG_FILE).
+  org: {}
+  # Free-form project registry. Rendered verbatim as ConfigMap code-squad-projects, key
+  # projects.yaml, mounted at /etc/squad/projects/projects.yaml (SQUAD_PROJECTS_DIR).
+  projects: {}
+
+otel:
+  # OTLP/HTTP collector endpoint, exposed as OTEL_EXPORTER_OTLP_ENDPOINT. Empty disables export.
+  # Example: http://otel-collector.observability.svc:4318
+  endpoint: ""
+
+sessionStore:
+  # URL of the shared session store, exposed as SESSION_STORE_URL. Empty means in-process state.
+  url: ""
+
+egressProxy:
+  # Outbound HTTP(S) proxy, exposed as EGRESS_PROXY_URL. Empty means direct egress.
+  # When set, the proxy CIDRs in networkPolicy.egressProxyCIDRs must be filled in as well.
+  url: ""
+
+webhooks:
+  gitlab:
+    # Expose /webhooks/gitlab through the ingress (michael only). Also sets WEBHOOK_PROVIDERS on
+    # michael, so the route is registered there.
+    enabled: true
+  github:
+    # Expose /webhooks/github through the ingress (michael only). Also sets WEBHOOK_PROVIDERS on
+    # michael, so the route is registered there.
+    enabled: true
+  # Optional separate Secret with the webhook signing secrets (keys gitlab-webhook-secret and
+  # github-webhook-secret). It is mounted read-only on michael at /var/run/secrets/squad-webhooks
+  # and exposed as WEBHOOK_SECRETS_DIR. Empty means the webhook secrets live in secrets.existingSecret.
+  secretName: ""
+
+ingress:
+  # Create an Ingress for michael's webhook paths only. The only paths are /webhooks/gitlab
+  # and /webhooks/github (pathType Exact), each enabled by its webhooks.*.enabled flag.
+  enabled: false
+  # ingressClassName, for example nginx.
+  className: ""
+  # Public host name for the webhooks. Empty matches any host.
+  host: ""
+  # TLS entries, each {hosts: [...], secretName: ...}.
+  tls: []
+  # Annotations for the Ingress object.
+  annotations: {}
+
+serviceMonitor:
+  # Create a monitoring.coreos.com/v1 ServiceMonitor that scrapes /metrics on the http port of
+  # every agent Service. Requires the Prometheus Operator CRDs.
+  enabled: false
+  # Scrape interval.
+  interval: 30s
+  # Extra labels on the ServiceMonitor, for example to match a Prometheus selector.
+  labels: {}
+
+hpa:
+  # Create an autoscaling/v2 HorizontalPodAutoscaler for every enabled agent.
+  enabled: false
+  # Lower bound of the replica range.
+  minReplicas: 2
+  # Upper bound of the replica range.
+  maxReplicas: 5
+  # Average CPU utilisation (percent of the request) that triggers scaling.
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  # Create a PodDisruptionBudget for every enabled agent. Off by default: with one replica and
+  # minAvailable 1, it blocks node drains.
+  enabled: false
+  # minAvailable: an integer, or a percentage string such as "50%".
+  minAvailable: 1
+
+serviceAccount:
+  # Create one ServiceAccount per enabled agent, named code-squad-<id>.
+  create: true
+  # Used only when create is false: the ServiceAccount name for every agent. RBAC bindings
+  # for darryl and pam then point at this name.
+  name: ""
+  # Annotations applied to every created ServiceAccount, for example cloud workload identity.
+  annotations: {}
+
+# Extra annotations on every agent pod.
+podAnnotations: {}
+
+# Node selection and scheduling, applied to every agent pod.
+nodeSelector: {}
+
+# Tolerations for every agent pod (standard Toleration list).
+tolerations: []
+
+# Pod affinity or node affinity for every agent pod (standard Affinity object).
+affinity: {}
+
+# Topology spread constraints for every agent pod (standard list). The labelSelector should match
+# app.kubernetes.io/part-of: code-squad to spread the whole squad, or a component label per agent.
+topologySpreadConstraints: []
+
+networkPolicy:
+  # Render NetworkPolicies: default-deny ingress and egress per agent, plus the sandbox namespace.
+  enabled: true
+  # Selector of the namespace that hosts cluster DNS.
+  dnsNamespaceSelector:
+    kubernetes.io/metadata.name: kube-system
+  # Pod selector of the DNS pods in that namespace.
+  dnsPodSelector:
+    k8s-app: kube-dns
+  # Namespace selector allowed to scrape /metrics on port 8080. Keep it specific. An empty map
+  # would match every namespace, so the rule is dropped when this is empty.
+  prometheusNamespaceSelector:
+    kubernetes.io/metadata.name: monitoring
+  # Namespace selector of the ingress controller that may reach michael when ingress.enabled is true.
+  ingressControllerNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-nginx
+  # CIDRs of the LLM gateway (egress to the agents on httpsPorts). Hostnames are not allowed in
+  # NetworkPolicy: resolve to CIDRs, or route through egressProxy.
+  llmGatewayCIDRs: []
+  # CIDRs of the VCS host (GitLab or GitHub or GHES), egress on httpsPorts.
+  vcsCIDRs: []
+  # CIDRs of the OTLP collector, egress on otlpPorts.
+  otlpCIDRs: []
+  otlpPorts: [4317, 4318]
+  # CIDRs for the vulnerability intelligence hosts used by dwight only (OSV, NVD, GHSA, KEV, EPSS).
+  # These are hostnames, so the CIDRs must be resolved and kept current, or set egressProxy.url
+  # and leave this list empty (dwight then runs in offline mode and marks findings as unverified).
+  advisoryCIDRs: []
+  # CIDRs of the egress proxy. Used only when egressProxy.url is set.
+  egressProxyCIDRs: []
+  egressProxyPorts: [3128]
+  # CIDRs of the session store, when it is outside the cluster.
+  sessionStoreCIDRs: []
+  sessionStorePorts: [6379]
+  # Endpoint IPs of the kube-apiserver, for darryl and pam (they call the Kubernetes API). On
+  # clusters where the API server is not reachable by a Service CIDR, list the control-plane node
+  # IPs or the API server load balancer.
+  kubeAPIServerCIDRs: []
+  kubeAPIServerPorts: [443, 6443]
+  # Ports used for HTTPS egress to the LLM gateway, VCS hosts and advisory hosts.
+  httpsPorts: [443]
+
+devops:
+  # Namespaces where darryl gets read-only access: a Role and RoleBinding are created in each.
+  # Empty means darryl has no Kubernetes access. Keep darryl's ops.allowed_namespaces in config in sync.
+  allowedNamespaces: []
+  # When true, darryl gets one read-only ClusterRole instead (allowedNamespaces is then ignored).
+  # Strongly discouraged. Secrets are never readable in either mode.
+  clusterWide: false
+
+sandbox:
+  # Render the sandbox namespace RBAC for pam and the sandbox NetworkPolicy, and pass the sandbox
+  # settings to pam as environment variables.
+  enabled: true
+  # Namespace where pam creates sandbox pods. Create it ahead of time with the restricted
+  # Pod Security Standard label. The chart does not create it.
+  namespace: code-squad-sandbox
+  # Sandbox image, built from deploy/sandbox-node.Dockerfile.
+  image: ghcr.io/example/code-squad-sandbox-node:0.1.0
+  # CIDRs that sandbox pods may reach (git host, package registry or proxy). Empty means DNS only.
+  allowedEgressCIDRs: []
+  # Ports used for allowedEgressCIDRs.
+  allowedEgressPorts: [443]
+  # Resources for each sandbox pod.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  # Hard wall-clock limit for a sandbox pod, in seconds.
+  activeDeadlineSeconds: 1800
+  # Seconds before a finished sandbox pod is garbage-collected.
+  ttlSecondsAfterFinished: 300
+
+# Pod-level security context (restricted Pod Security Standard).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level security context (restricted Pod Security Standard).
+containerSecurityContext:
+  # Never allow privilege escalation.
+  allowPrivilegeEscalation: false
+  # Root filesystem is read-only. Writable paths are the /tmp emptyDir and the sandbox workspace.
+  readOnlyRootFilesystem: true
+  # Drop every Linux capability.
+  capabilities:
+    drop:
+      - ALL

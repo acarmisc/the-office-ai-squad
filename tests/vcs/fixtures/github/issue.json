@@ -1,0 +1,17 @@
+{
+  "number": 12,
+  "title": "Greeting broken",
+  "body": "Hello never renders",
+  "state": "open",
+  "labels": [
+    {
+      "name": "bug"
+    }
+  ],
+  "assignees": [
+    {
+      "login": "alice"
+    }
+  ],
+  "html_url": "https://github.com/acme/web/issues/12"
+}

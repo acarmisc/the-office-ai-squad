@@ -1,0 +1,25 @@
+{
+  "name": "code-squad-review",
+  "url": "https://squad.example.com",
+  "description": "Code Squad review and engineering agents. Replace the URLs before use.",
+  "hook_attributes": {
+    "url": "https://squad.example.com/webhooks/github",
+    "active": true
+  },
+  "public": false,
+  "default_permissions": {
+    "metadata": "read",
+    "contents": "write",
+    "pull_requests": "write",
+    "issues": "write",
+    "checks": "write",
+    "statuses": "write",
+    "actions": "read"
+  },
+  "default_events": [
+    "pull_request",
+    "issue_comment",
+    "pull_request_review_comment",
+    "issues"
+  ]
+}

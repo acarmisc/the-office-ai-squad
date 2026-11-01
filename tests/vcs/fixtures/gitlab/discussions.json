@@ -1,0 +1,44 @@
+[
+  {
+    "id": "d1",
+    "individual_note": true,
+    "notes": [
+      {
+        "id": 900,
+        "type": null,
+        "body": "Earlier summary.\n<!-- code-squad:summary:jim -->",
+        "author": {
+          "username": "code-squad-bot"
+        },
+        "system": false,
+        "resolvable": false,
+        "resolved": false
+      }
+    ]
+  },
+  {
+    "id": "d2",
+    "individual_note": true,
+    "notes": [
+      {
+        "id": 901,
+        "type": null,
+        "body": "Looks fine",
+        "author": {
+          "username": "bob"
+        },
+        "system": false,
+        "resolvable": false
+      },
+      {
+        "id": 902,
+        "type": null,
+        "body": "added 1 commit",
+        "author": {
+          "username": "bob"
+        },
+        "system": true
+      }
+    ]
+  }
+]

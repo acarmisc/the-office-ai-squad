@@ -1,0 +1,312 @@
+# yaml-language-server: $schema=../../schemas/squad-config.schema.json
+# Organisation defaults for Code Squad. Loaded from SQUAD_CONFIG_FILE (default
+# /etc/squad/squad.yaml). Every key below is optional; the value shown is the default
+# unless the comment says otherwise. Nested keys can also be set with environment
+# variables: SQUAD__AGENTS__DWIGHT__MODEL=sonnet-5-5 (see docs for the table).
+#
+# Layers (lowest to highest): built-in defaults, this file and SQUAD__ variables,
+# the project registry, the repository's .squad/config.yml, call overrides.
+# Org-only keys cannot be changed by a repository or a call.
+
+# Version control. Each project's provider and credentials come from projects.yaml.
+vcs:
+  # gitlab | github | auto. Only used when a project does not set its own provider.
+  provider: auto
+  # Org-only. Set per project in projects.yaml for self-managed or enterprise hosts.
+  base_url: null
+  # Credentials are secret NAMES; values come from the secret provider.
+  auth:
+    token_secret: null
+  # Login of the bot account, used to ignore its own comments.
+  bot_username: null
+  # check_run | commit_status | auto. Auto prefers check runs, then commit statuses.
+  status_mode: auto
+  # Commit status or check name. {agent} becomes the agent id.
+  status_context_template: "ai-review/{agent}"
+  # none | comment | approve. Tighten-only: a repository may not set it more loosely.
+  approve_mode: none
+  # Label name overrides, keyed by logical name.
+  labels: {}
+  # inline | summary | both
+  comment_style: both
+  # Branches the squad must never write to. Repositories may only add to this list.
+  protected_branches: [main]
+
+# When a review starts and which comments may start one.
+trigger:
+  events:
+    - change_request_opened
+    - change_request_ready
+    - review_requested
+    - comment
+    - issue_assigned
+  # Also react to new pushes to an open change request.
+  on_push: false
+  # Users whose comments may trigger the squad. Empty means nobody.
+  # Repositories may only narrow this list.
+  allowed_commenters: []
+  # Comment commands, without the slash: /squad review, /squad sec, and so on.
+  slash_commands: [review, sec, implement, help]
+  # Quiet period (seconds) that merges a burst of events into one run.
+  debounce_seconds: 30
+  skip_draft: true
+  skip_labels: [skip-squad]
+  skip_wip_titles: true
+  skip_bot_authors: true
+
+# Per-agent settings, keyed by agent id. Agents not listed use their built-in defaults.
+agents:
+  dwight:
+    enabled: true
+    # Model aliases are resolved by the LiteLLM gateway.
+    model: sonnet-5-5
+    fallback_model: haiku-5-5
+    temperature: 0.2
+    max_iterations: 30
+    # Each budget is capped by the matching limits.* value.
+    budgets:
+      tokens: 150000
+      wall_clock_seconds: 900
+      tool_calls: 120
+      cost_hint_usd: 2.5
+    # Extra guidance appended to the prompt; untrusted and length-capped.
+    prompt_extra: null
+    # Org-only: additional knowledge directories readable by this agent.
+    knowledge_extra_dirs: []
+    # Tighten-only subset of tools. null means the agent's full tool set.
+    tool_allowlist: null
+    # Floor rules (SEC-SECRETS-001, SEC-INJ-001, ...) stay at blocker.
+    severity_overrides: {}
+    disabled_rules: []
+    language: en
+
+# Routing (michael) and risk tiers.
+routing:
+  # Changed-file glob to agents. Repositories may add routes but not remove them.
+  # The defaults are built in; add rules here only to extend them.
+  routes: []
+  # Changes under these paths raise the risk tier to high.
+  sensitive_paths:
+    - "**/auth/**"
+    - "**/payment*/**"
+    - "**/security/**"
+    - "infra/**"
+    - .gitlab-ci.yml
+    - .github/workflows/**
+    - "**/Dockerfile*"
+    - "**/*.tf"
+  # Changed-line thresholds for the medium and high tiers.
+  size_thresholds:
+    medium: 300
+    high: 1000
+  # Agents that run on every review.
+  always_run: [dwight]
+  # Org-only: HTTP base URL per specialist, when michael fans out over HTTP.
+  specialist_urls: {}
+  # Seconds per specialist call. 'default' applies to any agent not listed.
+  timeouts_seconds:
+    default: 600
+  # Specialists called in parallel.
+  fan_out_concurrency: 4
+  # When true, specialists publish directly. Repositories cannot enable it.
+  specialists_post: false
+
+# Review policy applied to every project unless a profile or repo file changes it.
+review:
+  # Files excluded from review. Repositories may add globs.
+  ignore_globs:
+    - "**/package-lock.json"
+    - "**/pnpm-lock.yaml"
+    - "**/yarn.lock"
+    - "**/poetry.lock"
+    - "**/Cargo.lock"
+    - "dist/**"
+    - "build/**"
+    - "vendor/**"
+    - "**/__snapshots__/**"
+    - "**/*.min.js"
+    - "**/generated/**"
+  # Diffs larger than this many bytes are chunked or truncated.
+  max_diff_bytes: 400000
+  # split_by_file | truncate
+  chunking: split_by_file
+  # low | medium | high. Findings below this confidence are not published.
+  min_confidence_to_publish: medium
+  # nit | minor | major | blocker. Lower findings go into the summary only.
+  min_severity_inline: minor
+  # Maximum findings published per run.
+  max_findings: 30
+  verdict:
+    # Majors at or above this count turn an approval into a comment (1: any major blocks approve).
+    major_threshold: 1
+    # A blocker requests changes. Repositories cannot turn this off.
+    request_changes_on_blocker: true
+  # Null uses the built-in summary template.
+  summary_template: null
+  # Honour squad-ignore comments; each needs a reason and is listed in the summary.
+  suppressions_enabled: true
+  # Repository file with accepted findings and expiry dates.
+  baseline_file: .squad/baseline.yml
+
+# Runtime skills (guidance only; see docs for precedence rules).
+skills:
+  # Candidate directories, in precedence order.
+  paths: [.agents/skills, .claude/skills, .squad/skills]
+  # base reads skills from the target branch. head is org-only and off by default.
+  ref: base
+  # Limits, each capped by limits.*.
+  max_skills: 20
+  max_skill_bytes: 20480
+  max_total_bytes: 81920
+  # Sources in use. Repositories may narrow this list.
+  allowed_sources: [payload, repo, builtin]
+
+# Vulnerability intelligence used by dwight.
+security:
+  sources:
+    osv: true
+    nvd: true
+    ghsa: true
+    kev: true
+    epss: true
+  # Hosts the advisory clients may contact. Org-only: this is the egress allow-list.
+  allowed_hosts:
+    - api.osv.dev
+    - services.nvd.nist.gov
+    - api.github.com
+    - www.cisa.gov
+    - api.first.org
+  # Advisory cache lifetime in seconds (21600 is six hours).
+  cache_ttl_seconds: 21600
+  # Thresholds that turn advisory data into severity. Repositories may only lower them.
+  severity_mapping:
+    kev_is_blocker: true
+    epss_major: 0.1
+    cvss_blocker: 9.0
+    cvss_major: 7.0
+  # fail_incomplete | low_confidence, when advisory sources cannot be reached.
+  offline_mode: low_confidence
+  # Accepted advisories with mandatory expiry. Expired entries are ignored.
+  accepted_risks: []
+  # Local scanners run in the sandbox when their binaries are present.
+  local_scanners:
+    gitleaks: false
+    semgrep: false
+    trivy: false
+
+# Operations (darryl): read-only observability and troubleshooting.
+ops:
+  # Org-only: namespaces darryl may read.
+  allowed_namespaces: [squad-staging]
+  # Org-only: observability endpoints (egress).
+  prometheus_url: https://prometheus.example.com
+  loki_url: null
+  argocd_url: null
+  # Regular expressions redacted from every tool output. Repositories may add.
+  redaction_patterns: []
+  max_log_lines: 500
+  max_query_points: 11000
+  incident_window_minutes: 120
+
+# Implementation (pam): branches, change requests and the sandbox.
+implementer:
+  branch_template: "pam/{task_key}-{slug}"
+  commit_template: "feat: {summary}"
+  mr_title_template: "{task_key}: {summary}"
+  mr_body_template: |
+    ## What
+    {summary}
+
+    ## Why
+    {why}
+
+    ## How tested
+    {tests}
+
+    ## Risks
+    {risks}
+  labels: [ai-generated]
+  reviewers: []
+  assignees: []
+  # Open change requests as drafts. Nothing waits for a human before creation.
+  mr_draft: false
+  # null: detect the repository's own checks (lint, typecheck, test, build).
+  check_commands: null
+  sandbox:
+    # Org-only: the sandbox image.
+    image: code-squad-sandbox-node:latest
+    cpu: "1"
+    memory: 2Gi
+    # Capped by limits.max_wall_clock_seconds.
+    timeout_seconds: 1800
+  git_identity:
+    name: "pam (code-squad)"
+    email: pam@code-squad.invalid
+  # Paths the implementer must not touch. Repositories may add.
+  protected_paths:
+    - .gitlab-ci.yml
+    - .github/**
+    - "**/package-lock.json"
+    - "**/pnpm-lock.yaml"
+    - "**/yarn.lock"
+  # Org-only: executables added to the sandbox allow-list.
+  extra_executables: []
+
+# LLM gateway (LiteLLM).
+llm:
+  # Org-only: gateway URL.
+  base_url: https://litellm.example.com
+  # Secret name holding the gateway key.
+  api_key_secret: llm-api-key
+  # Tags sent with every call, for cost attribution.
+  tag_template:
+    - "squad:code-squad"
+    - "project:{project}"
+    - "agent:{agent}"
+  # Daily spend cap per project. Repositories may only lower it. null means no cap.
+  budget_usd_per_day: 200
+  # Model alias to gateway model name.
+  aliases: {}
+
+# Tracing, metrics and logs.
+observability:
+  # Org-only: OTLP collector endpoint.
+  otlp_endpoint: null
+  # Fraction of traces sampled.
+  sampling_ratio: 1.0
+  # Org-only. METADATA keeps prompts and diffs out of traces.
+  content_capture: METADATA
+  # DEBUG | INFO | WARNING | ERROR
+  log_level: INFO
+
+# Platform ceilings. No lower layer can exceed these. Org-only.
+limits:
+  max_tokens: 200000
+  max_iterations: 50
+  max_wall_clock_seconds: 1800
+  max_tool_calls: 200
+  max_skills: 50
+  max_skill_bytes: 65536
+  max_total_skill_bytes: 262144
+  max_prompt_extra_chars: 4000
+
+# Secret provider. Org-only.
+secrets:
+  # k8s_files | env | file | vault
+  provider: k8s_files
+  # Names must fully match one of these expressions.
+  allowed_patterns:
+    - "^[a-z0-9][a-z0-9._-]*$"
+
+# External write policy. Org-only.
+posting:
+  # When true, no project or call can enable external writes.
+  force_dry_run: false
+
+# Where repository config is read from.
+repo_config:
+  # Org-only. Allow requests to read .squad/config.yml from the change request head.
+  allow_head_ref: false
+
+# Additional agents declared without code. See extra-agents.yaml for an example.
+extra_agents: []

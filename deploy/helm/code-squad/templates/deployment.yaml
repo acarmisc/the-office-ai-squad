@@ -1,0 +1,197 @@
+{{- $root := . -}}
+{{- $ns := include "code-squad.namespace" . -}}
+{{- range $id := splitList " " (include "code-squad.agentIds" .) }}
+{{- $agent := index $root.Values.agents $id }}
+{{- if $agent.enabled }}
+{{- $dctx := dict "id" $id "root" $root }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "code-squad.agentName" $dctx }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "code-squad.agentLabels" $dctx | nindent 4 }}
+spec:
+  {{- if not $root.Values.hpa.enabled }}
+  replicas: {{ $agent.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "code-squad.agentSelectorLabels" $dctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "code-squad.agentLabels" $dctx | nindent 8 }}
+      {{- if or $root.Values.podAnnotations $root.Values.config.restartOnChange }}
+      annotations:
+        {{- with $root.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if $root.Values.config.restartOnChange }}
+        checksum/config: {{ toYaml $root.Values.config | sha256sum | quote }}
+        {{- end }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "code-squad.serviceAccountName" $dctx }}
+      automountServiceAccountToken: {{ has $id (list "darryl" "pam") }}
+      securityContext:
+        {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: code-squad
+          image: {{ include "code-squad.image" $root | quote }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: AGENT_NAME
+              value: {{ $id | quote }}
+            - name: AGENT_MODEL_ID
+              value: {{ $agent.model | quote }}
+            - name: LLM_BASE_URL
+              value: {{ $root.Values.llm.baseUrl | quote }}
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.llm.apiKeySecret.name | default $root.Values.secrets.existingSecret | quote }}
+                  key: {{ $root.Values.llm.apiKeySecret.key | quote }}
+            - name: VCS_PROVIDER
+              value: {{ $root.Values.vcs.provider | quote }}
+            {{- with $root.Values.vcs.baseUrl }}
+            - name: VCS_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: SECRETS_DIR
+              value: /var/run/secrets/squad
+            - name: SQUAD_CONFIG_FILE
+              value: /etc/squad/squad.yaml
+            - name: SQUAD_PROJECTS_DIR
+              value: /etc/squad/projects
+            {{- with $root.Values.otel.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $root.Values.sessionStore.url }}
+            - name: SESSION_STORE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $root.Values.egressProxy.url }}
+            - name: EGRESS_PROXY_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $root.Values.api.tokenSecret.name }}
+            - name: SQUAD_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $root.Values.api.tokenSecret.key | quote }}
+            {{- end }}
+            {{- if eq $id "michael" }}
+            - name: ORCHESTRATOR_SPECIALIST_URLS
+              value: {{ include "code-squad.specialistUrls" $root | quote }}
+            - name: WEBHOOK_PROVIDERS
+              value: {{ include "code-squad.webhookProviders" $root | quote }}
+            {{- if $root.Values.webhooks.secretName }}
+            - name: WEBHOOK_SECRETS_DIR
+              value: /var/run/secrets/squad-webhooks
+            {{- end }}
+            {{- end }}
+            {{- if and (eq $id "pam") $root.Values.sandbox.enabled }}
+            - name: SANDBOX_NAMESPACE
+              value: {{ $root.Values.sandbox.namespace | quote }}
+            - name: SANDBOX_IMAGE
+              value: {{ $root.Values.sandbox.image | quote }}
+            - name: SANDBOX_ACTIVE_DEADLINE_SECONDS
+              value: {{ $root.Values.sandbox.activeDeadlineSeconds | quote }}
+            - name: SANDBOX_TTL_SECONDS_AFTER_FINISHED
+              value: {{ $root.Values.sandbox.ttlSecondsAfterFinished | quote }}
+            - name: SANDBOX_RESOURCES_JSON
+              value: {{ $root.Values.sandbox.resources | toJson | quote }}
+            {{- end }}
+            {{- with $agent.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml $agent.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $root.Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /etc/squad
+              readOnly: true
+            - name: projects
+              mountPath: /etc/squad/projects
+              readOnly: true
+            {{- if $root.Values.secrets.existingSecret }}
+            - name: secrets
+              mountPath: /var/run/secrets/squad
+              readOnly: true
+            {{- end }}
+            {{- if and (eq $id "michael") $root.Values.webhooks.secretName }}
+            - name: webhook-secrets
+              mountPath: /var/run/secrets/squad-webhooks
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: code-squad-config
+        - name: projects
+          configMap:
+            name: code-squad-projects
+        {{- if $root.Values.secrets.existingSecret }}
+        - name: secrets
+          secret:
+            secretName: {{ $root.Values.secrets.existingSecret | quote }}
+            defaultMode: 0440
+        {{- end }}
+        {{- if and (eq $id "michael") $root.Values.webhooks.secretName }}
+        - name: webhook-secrets
+          secret:
+            secretName: {{ $root.Values.webhooks.secretName | quote }}
+            defaultMode: 0440
+        {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,15 @@
+{
+  "iid": 12,
+  "title": "Greeting broken",
+  "description": "Hello never renders",
+  "state": "opened",
+  "labels": [
+    "bug"
+  ],
+  "assignees": [
+    {
+      "username": "alice"
+    }
+  ],
+  "web_url": "https://gitlab.test/acme/web/-/issues/12"
+}

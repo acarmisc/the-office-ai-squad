@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../schemas/projects.schema.json
+# Project registry. Entries are matched by key or glob; the most specific match is
+# applied last, so it wins. '*' stays within one path segment, '**' crosses them.
+# Profiles are referenced with extends and live in profiles/ or here under profiles:.
+
+projects:
+  # A GitLab project on the SaaS host. Extends the strict profile for payments code.
+  - match: platform/payments-api
+    key: platform/payments-api
+    provider: gitlab
+    base_url: https://gitlab.example.com
+    auth:
+      # Secret name, not a token value.
+      token_secret: gitlab-payments-token
+    extends: strict
+    overrides:
+      trigger:
+        on_push: true
+
+  # A GitHub repository authenticated as a GitHub App.
+  - match: acme/web-shop
+    provider: github
+    auth:
+      app_id: 12345
+      installation_id: 67890
+      private_key_secret: github-app-key
+    extends: balanced
+
+  # A glob group: every acme/web-* repository not listed above.
+  - match: acme/web-*
+    extends: balanced
+    overrides:
+      review:
+        min_severity_inline: minor
+
+  # GitHub Enterprise Server. The API base URL is host-specific.
+  - match: platform/legacy-api
+    provider: github
+    base_url: https://ghes.example.com/api/v3
+    auth:
+      token_secret: ghes-legacy-token
+    extends: lenient

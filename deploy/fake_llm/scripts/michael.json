@@ -1,0 +1,16 @@
+[
+  {
+    "tool": "read_knowledge",
+    "input": {
+      "topic": "react/index"
+    }
+  },
+  {
+    "tool": "finish",
+    "input": {
+      "verdict": "comment",
+      "summary": "Smoke run: orchestrator answered through the fake model. No external write was attempted.",
+      "findings": []
+    }
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "id": 902,
+    "body": "added 1 commit",
+    "system": true,
+    "author": {
+      "username": "bob"
+    }
+  },
+  {
+    "id": 901,
+    "body": "Looks fine",
+    "system": false,
+    "author": {
+      "username": "bob"
+    }
+  },
+  {
+    "id": 900,
+    "body": "Earlier summary.\n<!-- code-squad:summary:jim -->",
+    "system": false,
+    "author": {
+      "username": "code-squad-bot"
+    }
+  }
+]

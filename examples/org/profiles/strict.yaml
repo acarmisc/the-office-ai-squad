@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=../../../schemas/squad-config.schema.json
+# Strict profile for payments and other high-risk code. Same content as the built-in
+# profile; copy and edit to change it. A repository can only tighten on top of it.
+vcs:
+  approve_mode: none
+review:
+  min_confidence_to_publish: low
+  min_severity_inline: nit
+  verdict:
+    major_threshold: 1
+    request_changes_on_blocker: true
+security:
+  severity_mapping:
+    cvss_blocker: 7.0
+    cvss_major: 4.0
+    epss_major: 0.05
+  offline_mode: fail_incomplete
+skills:
+  allowed_sources: [payload, builtin]
+routing:
+  size_thresholds:
+    medium: 150
+    high: 500

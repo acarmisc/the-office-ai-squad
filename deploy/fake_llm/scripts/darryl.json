@@ -1,0 +1,16 @@
+[
+  {
+    "tool": "read_knowledge",
+    "input": {
+      "topic": "devops/index"
+    }
+  },
+  {
+    "tool": "finish",
+    "input": {
+      "verdict": "comment",
+      "summary": "Smoke run: DevOps reviewer completed its scripted pass. No findings were raised and nothing was published.",
+      "findings": []
+    }
+  }
+]

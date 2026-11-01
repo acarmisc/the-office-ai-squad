@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=../values.schema.json
+#
+# Local kind demo. Used by deploy/kind/kind-up.sh.
+# - image is loaded into kind with `kind load docker-image code-squad:dev` (pullPolicy Never).
+# - the LLM is the in-cluster fake stub (deploy/fake_llm), key from the demo Secret created by kind-up.sh.
+# - NetworkPolicies are off and the sandbox is off: kind has neither the CNI policy nor the namespaces.
+# - resources are small so the six agents fit on a laptop.
+
+image:
+  # Image loaded into kind by kind-up.sh.
+  repository: code-squad
+  # Tag built by kind-up.sh.
+  tag: dev
+  # Never pull: the image exists only in the kind node.
+  pullPolicy: Never
+
+llm:
+  # In-cluster fake LLM Service (deploy/kind/fake-llm.yaml), port 4000.
+  baseUrl: http://fake-llm:4000
+  apiKeySecret:
+    # Demo Secret created by kind-up.sh.
+    name: code-squad-secrets
+    # Key holding the demo key.
+    key: llm-api-key
+
+vcs:
+  # No VCS is reachable from kind. The provider is inferred and nothing is posted.
+  provider: auto
+  # No VCS host in kind.
+  baseUrl: ""
+
+secrets:
+  # Demo Secret created by kind-up.sh (contains only llm-api-key).
+  existingSecret: code-squad-secrets
+
+networkPolicy:
+  # Off in kind: the default CNI does not enforce the policies and the fake LLM is in-cluster.
+  enabled: false
+
+sandbox:
+  # Off in kind: no sandbox namespace and no git remote.
+  enabled: false
+
+agents:
+  # Small requests and limits for a laptop-sized cluster.
+  michael:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  jim:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  angela:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  dwight:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  darryl:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  pam:
+    resources:
+      requests: {cpu: 50m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 1Gi}

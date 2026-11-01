@@ -1,0 +1,1 @@
+jim has no pack of its own. It reads the shared React pack in `code_squad/_common/knowledge/react/` through `read_knowledge`, for example `react/hooks-and-effects`. Files placed here would be read first, so they override the shared topics of the same name.

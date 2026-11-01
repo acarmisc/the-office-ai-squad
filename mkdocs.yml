@@ -1,0 +1,86 @@
+site_name: Code Squad
+site_description: Specialised review and engineering agents, portable to any Kubernetes.
+repo_url: https://github.com/acarmisc/the-office-ai-squad
+docs_dir: docs
+strict: true
+theme:
+  name: material
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+nav:
+  - Home: index.md
+  - FAQ: faq.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Review sequence: architecture/review-sequence.md
+      - pam sequence: architecture/pam-sequence.md
+      - Config layering: architecture/config-layering.md
+      - HTTP contract and findings: architecture/contract.md
+  - Agents:
+      - michael (orchestrator): agents/michael.md
+      - jim (React reviewer): agents/jim.md
+      - angela (Java reviewer): agents/angela.md
+      - dwight (security reviewer): agents/dwight.md
+      - darryl (DevOps): agents/darryl.md
+      - pam (frontend engineer): agents/pam.md
+      - Extra agents: agents/extra-agents.md
+  - Configuration:
+      - Concepts: configuration/concepts.md
+      - Recipes: configuration/recipes.md
+      - Reference:
+          - Configuration: reference/configuration.md
+          - Environment variables: reference/environment.md
+          - Tool policy: reference/tool-policy.md
+          - VCS capabilities: reference/vcs-capabilities.md
+          - Agent defaults: reference/agents.md
+  - VCS:
+      - GitLab: vcs/gitlab.md
+      - GitHub: vcs/github.md
+      - Adding a provider: vcs/adding-a-provider.md
+  - Onboarding:
+      - New project checklist: onboarding/new-project.md
+      - Skills authoring: onboarding/skills-authoring.md
+      - Knowledge packs: onboarding/knowledge-packs.md
+  - Deployment:
+      - Helm chart: deployment/helm.md
+      - Secrets: deployment/secrets.md
+      - Network and egress: deployment/network-and-egress.md
+      - RBAC: deployment/rbac.md
+      - Ingress and webhooks: deployment/ingress-webhooks.md
+      - Scaling and upgrades: deployment/scaling-upgrades.md
+      - Local environments: deployment/local.md
+      - Local validation record: deployment/local-validation.md
+  - Operations:
+      - Runbook: operations/runbook.md
+  - Security:
+      - Threat model: security/threat-model.md
+      - Prompt injection: security/prompt-injection.md
+      - Hardening: security/hardening.md
+  - Testing: testing/index.md
+  - Contributing: contributing/index.md
+  - Decisions:
+      - Index: decisions/index.md
+      - 0001 Stack: decisions/0001-stack.md
+      - 0002 Runtime semantics: decisions/0002-runtime-semantics.md
+      - 0003 Configuration layering: decisions/0003-configuration-layering.md
+      - 0004 Skills from the base branch: decisions/0004-skills-from-base-branch.md
+      - 0005 Sandbox backend: decisions/0005-sandbox-backend.md
+      - 0006 darryl read-only: decisions/0006-darryl-read-only.md
+      - 0007 No approval gate for pam: decisions/0007-no-approval-gate-for-pam.md
+      - 0008 Per-invocation services: decisions/0008-per-invocation-services.md
+      - 0009 dwight offline mode: decisions/0009-dwight-offline-mode.md
+      - 0010 Single publication path: decisions/0010-orchestrator-single-publication-path.md
+      - 0011 VCS abstraction: decisions/0011-vcs-abstraction.md
+      - 0012 Agent naming: decisions/0012-agent-naming.md
+  - Handoff: HANDOFF.md
+  - Build brief: BRIEF.md

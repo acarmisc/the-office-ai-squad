@@ -1,0 +1,29 @@
+lockfileVersion: '6.0'
+
+dependencies:
+  lodash:
+    specifier: ^4.17.21
+    version: 4.17.21
+
+devDependencies:
+  jest:
+    specifier: ^29.7.0
+    version: 29.7.0
+
+packages:
+
+  /@babel/core@7.20.0:
+    resolution: {integrity: sha512-AAAAfakeAAAA}
+    dev: false
+
+  /jest@29.7.0:
+    resolution: {integrity: sha512-CCCCfakeCCCC}
+    dev: true
+
+  /lodash@4.17.21:
+    resolution: {integrity: sha512-IIIIfakeIIII}
+    dev: false
+
+  /react-dom@18.2.0(react@18.2.0):
+    resolution: {integrity: sha512-JJJJfakeJJJJ}
+    dev: false

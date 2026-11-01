@@ -1,0 +1,194 @@
+# yaml-language-server: $schema=../values.schema.json
+#
+# Production, high availability. Two to three replicas per agent, autoscaling, disruption budget,
+# zone spreading, metrics scraping and TLS on the webhook ingress.
+# Replace every placeholder (registry, hostnames, CIDRs, class names) before installing.
+
+image:
+  # Production registry.
+  repository: registry.example.com/platform/code-squad
+  # Pinned release tag (short SHA or semver).
+  tag: "0.1.0"
+  # Tags are immutable, so pulling only when missing is correct.
+  pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  # Pull credentials for the registry.
+  - name: registry-pull
+
+agents:
+  # Two replicas per agent. The HPA below takes over the count.
+  michael:
+    replicas: 2
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "2", memory: 2Gi}
+  jim:
+    replicas: 2
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+  angela:
+    replicas: 2
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+  dwight:
+    replicas: 2
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+  darryl:
+    replicas: 2
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+  pam:
+    replicas: 2
+    resources:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits: {cpu: "1", memory: 2Gi}
+
+llm:
+  # Production LLM gateway.
+  baseUrl: https://llm-gateway.example.internal/v1
+  apiKeySecret:
+    # Empty: use secrets.existingSecret.
+    name: ""
+    # Key in the Secret.
+    key: llm-api-key
+
+vcs:
+  # Pin the provider in production.
+  provider: gitlab
+  # Self-managed GitLab.
+  baseUrl: https://gitlab.example.com
+
+secrets:
+  # Secret synced by External Secrets (deploy/secrets-examples/external-secret.yaml).
+  existingSecret: code-squad-secrets
+
+config:
+  # Roll the pods when org or project config changes. Hot reload still applies in between.
+  restartOnChange: true
+  org:
+    # Org defaults: conservative posting, no approvals.
+    vcs:
+      approve_mode: none
+      status_mode: auto
+      comment_style: both
+  projects: {}
+
+otel:
+  # Central OTLP collector.
+  endpoint: http://otel-collector.observability.svc:4318
+
+hpa:
+  # Scale each agent between 2 and 3 replicas on CPU.
+  enabled: true
+  # Never below two replicas.
+  minReplicas: 2
+  # Upper bound per agent.
+  maxReplicas: 3
+  # Scale out at 70 percent of the CPU request.
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  # Keep at least one replica of each agent during drains.
+  enabled: true
+  # One pod may be disrupted at a time with two replicas.
+  minAvailable: 1
+
+topologySpreadConstraints:
+  # Spread the squad across zones.
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: code-squad
+
+affinity:
+  # Keep replicas of the same agent on different nodes.
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: code-squad
+
+serviceMonitor:
+  # Scrape /metrics with the Prometheus Operator.
+  enabled: true
+  # Scrape interval.
+  interval: 30s
+  # Label that the Prometheus instance selects on.
+  labels:
+    release: kube-prometheus-stack
+
+webhooks:
+  gitlab:
+    # Route /webhooks/gitlab.
+    enabled: true
+  github:
+    # Route /webhooks/github (set to false if GitHub is not used).
+    enabled: true
+  # Webhook signing secrets in a separate Secret, readable by michael only.
+  secretName: code-squad-webhooks
+
+ingress:
+  # Public webhook endpoint with TLS.
+  enabled: true
+  # Ingress controller class.
+  className: nginx
+  # Public host for webhooks.
+  host: squad.example.com
+  # TLS certificate, issued by cert-manager.
+  tls:
+    - hosts:
+        - squad.example.com
+      secretName: squad-example-com-tls
+  # cert-manager issuer and a body size cap for webhook payloads.
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+
+networkPolicy:
+  # Policies on in production.
+  enabled: true
+  # Internal LLM gateway.
+  llmGatewayCIDRs: ["192.0.2.0/24"]
+  # GitLab address range.
+  vcsCIDRs: ["198.51.100.10/32"]
+  # OTLP collector address range.
+  otlpCIDRs: ["10.20.0.0/16"]
+  # Kube-apiserver endpoint IPs for darryl and pam.
+  kubeAPIServerCIDRs: ["203.0.113.5/32", "203.0.113.6/32", "203.0.113.7/32"]
+  # Egress proxy is not used in this scenario.
+  egressProxyCIDRs: []
+  # Vulnerability intel hosts for dwight. Resolve and keep current, or route via egressProxy.
+  advisoryCIDRs: []
+
+sandbox:
+  # Sandbox namespace must exist with the restricted Pod Security label.
+  enabled: true
+  # Namespace name.
+  namespace: code-squad-sandbox
+  # Sandbox image.
+  image: registry.example.com/platform/code-squad-sandbox-node:0.1.0
+  # Sandbox may reach only the GitLab host on HTTPS.
+  allowedEgressCIDRs: ["198.51.100.10/32"]
+  # Larger sandbox limits for production builds.
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {cpu: "4", memory: 4Gi}
+  # Allow 40 minutes for long builds.
+  activeDeadlineSeconds: 2400
+
+devops:
+  # darryl reads the production namespaces.
+  allowedNamespaces: ["payments", "web", "platform"]
+  # Keep cluster-wide read off.
+  clusterWide: false

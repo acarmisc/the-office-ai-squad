@@ -1,0 +1,36 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      lodash:
+        specifier: ^4.17.21
+        version: 4.17.21
+    devDependencies:
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.0
+
+packages:
+
+  '@babel/core@7.24.0':
+    resolution: {integrity: sha512-KKKKfakeKKKK}
+
+  lodash@4.17.21:
+    resolution: {integrity: sha512-IIIIfakeIIII}
+
+  vitest@1.6.0:
+    resolution: {integrity: sha512-LLLLfakeLLLL}
+
+snapshots:
+
+  '@babel/core@7.24.0': {}
+
+  lodash@4.17.21: {}
+
+  vitest@1.6.0: {}

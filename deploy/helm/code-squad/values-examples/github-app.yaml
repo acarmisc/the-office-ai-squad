@@ -1,0 +1,94 @@
+# yaml-language-server: $schema=../values.schema.json
+#
+# GitHub with a GitHub App (preferred auth). The App private key and webhook secret are read
+# from files under SECRETS_DIR. Nothing secret is in this file.
+# Secret keys expected in code-squad-secrets: llm-api-key, github-app-private-key,
+# github-webhook-secret, optional nvd-api-key. See deploy/secrets-examples/.
+
+image:
+  # Your registry path for the code-squad image.
+  repository: registry.example.com/platform/code-squad
+  # Pin an exact tag in production.
+  tag: "0.1.0"
+
+llm:
+  # Internal LLM gateway.
+  baseUrl: https://llm-gateway.example.internal/v1
+  apiKeySecret:
+    # Empty: use secrets.existingSecret.
+    name: ""
+    # Key in the Secret.
+    key: llm-api-key
+
+vcs:
+  # GitHub.com (empty base URL). Use `github` for GHES plus baseUrl.
+  provider: github
+  # github.com API host.
+  baseUrl: ""
+
+secrets:
+  # Secret that holds the App private key, App id and webhook secret.
+  existingSecret: code-squad-github-app
+
+webhooks:
+  github:
+    # Route /webhooks/github.
+    enabled: true
+  gitlab:
+    # No GitLab in this deployment.
+    enabled: false
+  # Empty: webhook secret comes from existingSecret.
+  secretName: ""
+
+ingress:
+  # Expose michael's webhook endpoint.
+  enabled: true
+  # Ingress controller class.
+  className: nginx
+  # Host GitHub calls for webhooks.
+  host: squad.example.com
+  # TLS certificate for the host.
+  tls:
+    - hosts:
+        - squad.example.com
+      secretName: squad-example-com-tls
+
+networkPolicy:
+  # Keep policies on for the real install.
+  enabled: true
+  # Internal LLM gateway address range.
+  llmGatewayCIDRs: ["192.0.2.0/24"]
+  # GitHub API address ranges: resolve from the published GitHub meta endpoint and keep current.
+  vcsCIDRs: ["203.0.113.0/24"]
+  # Kube-apiserver endpoint IPs for darryl and pam.
+  kubeAPIServerCIDRs: ["203.0.113.5/32"]
+
+sandbox:
+  # Sandbox namespace must exist before install.
+  enabled: true
+  # Namespace name.
+  namespace: code-squad-sandbox
+  # Sandbox image.
+  image: registry.example.com/platform/code-squad-sandbox-node:0.1.0
+  # GitHub egress for git push and clone, on HTTPS.
+  allowedEgressCIDRs: ["203.0.113.0/24"]
+
+devops:
+  # darryl may read the listed namespaces.
+  allowedNamespaces: ["payments"]
+  # Keep cluster-wide read off.
+  clusterWide: false
+
+config:
+  org:
+    # GitHub App credentials. The App id is not secret; the private key is read from SECRETS_DIR.
+    vcs:
+      provider: github
+      auth:
+        app_id: 12345678
+        installation_id: 12345678
+        private_key_secret: github-app-private-key
+      status_mode: check_run
+      approve_mode: none
+      comment_style: inline
+  projects: {}

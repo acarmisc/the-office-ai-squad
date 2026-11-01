@@ -1,0 +1,123 @@
+[
+  {
+    "tool": "get_review_context",
+    "input": {}
+  },
+  {
+    "tool": "read_file",
+    "input": {
+      "path": "src/main/java/com/example/orders/OrderService.java",
+      "start": 1,
+      "end": 40
+    }
+  },
+  {
+    "tool": "read_knowledge",
+    "input": {
+      "topic": "java/spring-core"
+    }
+  },
+  {
+    "tool": "publish_review",
+    "input": {
+      "findings": [
+        {
+          "agent": "angela",
+          "rule_id": "JAVA-JPA-001",
+          "category": "security",
+          "severity": "blocker",
+          "confidence": "high",
+          "file": "src/main/java/com/example/orders/OrderService.java",
+          "line_start": 20,
+          "line_end": 20,
+          "head_sha": "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+          "title": "JPQL built by concatenating the status parameter",
+          "rationale": "The status value is concatenated into the query text instead of bound as a parameter.",
+          "failure_scenario": "A status value containing a quote changes the query and returns or changes rows outside the request.",
+          "references": [
+            "CWE-89"
+          ]
+        },
+        {
+          "agent": "angela",
+          "rule_id": "JAVA-SPRING-001",
+          "category": "correctness",
+          "severity": "major",
+          "confidence": "high",
+          "file": "src/main/java/com/example/orders/OrderService.java",
+          "line_start": 26,
+          "line_end": 26,
+          "head_sha": "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+          "title": "@Transactional on cancel is bypassed by self-invocation",
+          "rationale": "cancelAll is not transactional and calls cancel through this, so the proxy never starts a transaction and the status change is not flushed."
+        },
+        {
+          "agent": "angela",
+          "rule_id": "JAVA-RES-001",
+          "category": "reliability",
+          "severity": "major",
+          "confidence": "high",
+          "file": "src/main/java/com/example/orders/OrderService.java",
+          "line_start": 39,
+          "line_end": 40,
+          "head_sha": "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+          "title": "Refund failures are swallowed",
+          "rationale": "The catch block discards the exception, so a failed refund is reported as success."
+        }
+      ],
+      "summary": "Three issues: JPQL concatenation, a bypassed transaction and a swallowed exception."
+    }
+  },
+  {
+    "tool": "finish",
+    "input": {
+      "verdict": "request_changes",
+      "summary": "Three issues: JPQL concatenation, a bypassed transaction and a swallowed exception.",
+      "findings": [
+        {
+          "agent": "angela",
+          "rule_id": "JAVA-JPA-001",
+          "category": "security",
+          "severity": "blocker",
+          "confidence": "high",
+          "file": "src/main/java/com/example/orders/OrderService.java",
+          "line_start": 20,
+          "line_end": 20,
+          "head_sha": "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+          "title": "JPQL built by concatenating the status parameter",
+          "rationale": "The status value is concatenated into the query text instead of bound as a parameter.",
+          "failure_scenario": "A status value containing a quote changes the query and returns or changes rows outside the request.",
+          "references": [
+            "CWE-89"
+          ]
+        },
+        {
+          "agent": "angela",
+          "rule_id": "JAVA-SPRING-001",
+          "category": "correctness",
+          "severity": "major",
+          "confidence": "high",
+          "file": "src/main/java/com/example/orders/OrderService.java",
+          "line_start": 26,
+          "line_end": 26,
+          "head_sha": "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+          "title": "@Transactional on cancel is bypassed by self-invocation",
+          "rationale": "cancelAll is not transactional and calls cancel through this, so the proxy never starts a transaction and the status change is not flushed."
+        },
+        {
+          "agent": "angela",
+          "rule_id": "JAVA-RES-001",
+          "category": "reliability",
+          "severity": "major",
+          "confidence": "high",
+          "file": "src/main/java/com/example/orders/OrderService.java",
+          "line_start": 39,
+          "line_end": 40,
+          "head_sha": "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+          "title": "Refund failures are swallowed",
+          "rationale": "The catch block discards the exception, so a failed refund is reported as success."
+        }
+      ]
+    }
+  }
+]

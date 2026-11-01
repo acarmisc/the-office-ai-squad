@@ -1,0 +1,1672 @@
+{
+  "$defs": {
+    "AcceptedRisk": {
+      "additionalProperties": false,
+      "properties": {
+        "expires": {
+          "description": "Date after which the acceptance is ignored with a warning.",
+          "format": "date",
+          "title": "Expires",
+          "type": "string"
+        },
+        "id": {
+          "description": "Advisory or rule id being accepted.",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why the risk is accepted. Required.",
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reason",
+        "expires"
+      ],
+      "title": "AcceptedRisk",
+      "type": "object"
+    },
+    "AgentConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "budgets": {
+          "$ref": "#/$defs/Budgets",
+          "description": "Per-invocation budgets. Each is capped by the matching limits.* value."
+        },
+        "disabled_rules": {
+          "description": "Rule ids turned off for this agent. Floor rules cannot be disabled.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Disabled Rules",
+          "type": "array",
+          "x-floor": true,
+          "x-mergeable-set": true
+        },
+        "enabled": {
+          "default": true,
+          "description": "Whether this agent runs at all.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "fallback_model": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model alias used once after a truncation or overload.",
+          "title": "Fallback Model"
+        },
+        "knowledge_extra_dirs": {
+          "description": "Additional knowledge directories the agent may read. Org-only.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Knowledge Extra Dirs",
+          "type": "array",
+          "x-merge": "org_only"
+        },
+        "language": {
+          "default": "en",
+          "description": "Language of published comments.",
+          "maxLength": 16,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "max_iterations": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model turns per invocation. Cannot exceed limits.max_iterations.",
+          "title": "Max Iterations",
+          "x-ceiling": "limits.max_iterations",
+          "x-merge": "tighten_only"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model output token cap per call. Cannot exceed limits.max_tokens.",
+          "title": "Max Tokens",
+          "x-ceiling": "limits.max_tokens",
+          "x-merge": "tighten_only"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model alias for this agent. Defaults to the agent's built-in alias.",
+          "title": "Model"
+        },
+        "prompt_extra": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra guidance appended to the agent prompt. Untrusted guidance: it cannot override system rules. Length is capped by limits.max_prompt_extra_chars.",
+          "title": "Prompt Extra",
+          "x-ceiling": "limits.max_prompt_extra_chars",
+          "x-merge": "tighten_only"
+        },
+        "severity_overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Severity"
+          },
+          "description": "Severity per rule_id. Floor rules must stay at blocker.",
+          "title": "Severity Overrides",
+          "type": "object",
+          "x-floor": true
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sampling temperature between 0 and 1.",
+          "title": "Temperature"
+        },
+        "tool_allowlist": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Restrict the agent to these tools. Lower layers may only pick a subset of the base list; null means the agent's full tool set. External-write tools cannot be listed below the org layer.",
+          "title": "Tool Allowlist",
+          "x-merge": "tighten_only",
+          "x-tighten": "subset",
+          "x-tool-names": true
+        }
+      },
+      "title": "AgentConfig",
+      "type": "object"
+    },
+    "Budgets": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_hint_usd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 5.0,
+          "description": "Advisory cost ceiling reported in stats.cost_hint.",
+          "title": "Cost Hint Usd"
+        },
+        "tokens": {
+          "default": 100000,
+          "description": "Maximum model tokens per invocation for this agent.",
+          "minimum": 1,
+          "title": "Tokens",
+          "type": "integer",
+          "x-ceiling": "limits.max_tokens",
+          "x-merge": "tighten_only"
+        },
+        "tool_calls": {
+          "default": 100,
+          "description": "Maximum tool calls per invocation.",
+          "minimum": 1,
+          "title": "Tool Calls",
+          "type": "integer",
+          "x-ceiling": "limits.max_tool_calls",
+          "x-merge": "tighten_only"
+        },
+        "wall_clock_seconds": {
+          "default": 900,
+          "description": "Maximum wall-clock seconds per invocation.",
+          "minimum": 1,
+          "title": "Wall Clock Seconds",
+          "type": "integer",
+          "x-ceiling": "limits.max_wall_clock_seconds",
+          "x-merge": "tighten_only"
+        }
+      },
+      "title": "Budgets",
+      "type": "object"
+    },
+    "ExtraAgent": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "description": "One-line role description.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "description": "Agent id: a lowercase single token, not a built-in id.",
+          "pattern": "^[a-z][a-z0-9]{1,30}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "knowledge_dirs": {
+          "description": "Knowledge directories readable through read_knowledge.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Knowledge Dirs",
+          "type": "array"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model alias. Defaults to the platform default.",
+          "title": "Model"
+        },
+        "prompt_path": {
+          "description": "Path to the agent prompt markdown file.",
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Prompt Path",
+          "type": "string"
+        },
+        "routes": {
+          "description": "Changed-file globs that route to this agent.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Routes",
+          "type": "array"
+        },
+        "tool_preset": {
+          "default": "review_readonly",
+          "description": "Tool set: review_readonly, or review_publish which adds publish_review.",
+          "enum": [
+            "review_readonly",
+            "review_publish"
+          ],
+          "title": "Tool Preset",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "prompt_path"
+      ],
+      "title": "ExtraAgent",
+      "type": "object"
+    },
+    "GitIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "default": "pam@code-squad.invalid",
+          "description": "Commit author email.",
+          "maxLength": 254,
+          "minLength": 3,
+          "title": "Email",
+          "type": "string"
+        },
+        "name": {
+          "default": "pam (code-squad)",
+          "description": "Commit author name.",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "title": "GitIdentity",
+      "type": "object"
+    },
+    "ImplementerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "assignees": {
+          "description": "Assignees set on every change request.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Assignees",
+          "type": "array"
+        },
+        "branch_template": {
+          "default": "pam/{task_key}-{slug}",
+          "description": "Branch name template; {task_key} and {slug} are filled in.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Branch Template",
+          "type": "string"
+        },
+        "check_commands": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Commands run in the sandbox to verify the change. Null means detect them from the repository.",
+          "title": "Check Commands"
+        },
+        "commit_template": {
+          "default": "feat: {summary}",
+          "description": "Commit message template; {summary} is filled in.",
+          "maxLength": 200,
+          "title": "Commit Template",
+          "type": "string"
+        },
+        "extra_executables": {
+          "description": "Executables added to the sandbox allow-list. Org-only.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Extra Executables",
+          "type": "array",
+          "x-merge": "org_only"
+        },
+        "git_identity": {
+          "$ref": "#/$defs/GitIdentity",
+          "description": "Git author for implementer commits."
+        },
+        "labels": {
+          "description": "Labels added to every change request.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "array"
+        },
+        "mr_body_template": {
+          "default": "## What\n{summary}\n\n## Why\n{why}\n\n## How tested\n{tests}\n\n## Risks\n{risks}\n",
+          "description": "Change request body template with what, why, how tested and risks sections.",
+          "maxLength": 8000,
+          "title": "Mr Body Template",
+          "type": "string"
+        },
+        "mr_draft": {
+          "default": false,
+          "description": "Open change requests as drafts.",
+          "title": "Mr Draft",
+          "type": "boolean"
+        },
+        "mr_title_template": {
+          "default": "{task_key}: {summary}",
+          "description": "Change request title template.",
+          "maxLength": 200,
+          "title": "Mr Title Template",
+          "type": "string"
+        },
+        "protected_paths": {
+          "description": "Paths the implementer must not touch. Lower layers may only add.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Protected Paths",
+          "type": "array",
+          "x-mergeable-set": true
+        },
+        "reviewers": {
+          "description": "Reviewers requested on every change request.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Reviewers",
+          "type": "array"
+        },
+        "sandbox": {
+          "$ref": "#/$defs/SandboxConfig",
+          "description": "Sandbox settings."
+        }
+      },
+      "title": "ImplementerConfig",
+      "type": "object"
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_iterations": {
+          "default": 50,
+          "description": "Platform ceiling for model turns.",
+          "minimum": 1,
+          "title": "Max Iterations",
+          "type": "integer",
+          "x-merge": "org_only"
+        },
+        "max_prompt_extra_chars": {
+          "default": 4000,
+          "description": "Platform ceiling for prompt_extra length.",
+          "minimum": 1,
+          "title": "Max Prompt Extra Chars",
+          "type": "integer",
+          "x-merge": "org_only"
+        },
+        "max_skill_bytes": {
+          "default": 65536,
+          "description": "Platform ceiling for bytes per skill.",
+          "minimum": 1,
+          "title": "Max Skill Bytes",
+          "type": "integer",
+          "x-merge": "org_only"
+        },
+        "max_skills": {
+          "default": 50,
+          "description": "Platform ceiling for skills per run.",
+          "minimum": 1,
+          "title": "Max Skills",
+          "type": "integer",
+          "x-merge": "org_only"
+        },
+        "max_tokens": {
+          "default": 200000,
+          "description": "Platform ceiling for tokens per invocation.",
+          "minimum": 1,
+          "title": "Max Tokens",
+          "type": "integer",
+          "x-merge": "org_only"
+        },
+        "max_tool_calls": {
+          "default": 200,
+          "description": "Platform ceiling for tool calls.",
+          "minimum": 1,
+          "title": "Max Tool Calls",
+          "type": "integer",
+          "x-merge": "org_only"
+        },
+        "max_total_skill_bytes": {
+          "default": 262144,
+          "description": "Platform ceiling for total skill bytes.",
+          "minimum": 1,
+          "title": "Max Total Skill Bytes",
+          "type": "integer",
+          "x-merge": "org_only"
+        },
+        "max_wall_clock_seconds": {
+          "default": 1800,
+          "description": "Platform ceiling for wall-clock seconds.",
+          "minimum": 1,
+          "title": "Max Wall Clock Seconds",
+          "type": "integer",
+          "x-merge": "org_only"
+        }
+      },
+      "title": "Limits",
+      "type": "object"
+    },
+    "LlmConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Reserved: model alias to gateway model name. Not applied in this version; model aliases are passed to the LiteLLM gateway unchanged.",
+          "title": "Aliases",
+          "type": "object"
+        },
+        "api_key_secret": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,252}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "llm-api-key",
+          "description": "Secret name holding the gateway key.",
+          "title": "Api Key Secret",
+          "x-secret-ref": true
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LiteLLM gateway URL. Org-only (egress).",
+          "title": "Base Url",
+          "x-merge": "org_only"
+        },
+        "budget_usd_per_day": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Daily spend cap per project. Lower layers may only lower it.",
+          "title": "Budget Usd Per Day",
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
+        },
+        "tag_template": {
+          "description": "LiteLLM tags sent with each call. {project} and {agent} are filled in.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tag Template",
+          "type": "array"
+        }
+      },
+      "title": "LlmConfig",
+      "type": "object"
+    },
+    "LocalScanners": {
+      "additionalProperties": false,
+      "properties": {
+        "gitleaks": {
+          "default": false,
+          "description": "Run gitleaks in the sandbox.",
+          "title": "Gitleaks",
+          "type": "boolean"
+        },
+        "semgrep": {
+          "default": false,
+          "description": "Run semgrep in the sandbox.",
+          "title": "Semgrep",
+          "type": "boolean"
+        },
+        "trivy": {
+          "default": false,
+          "description": "Run trivy fs in the sandbox.",
+          "title": "Trivy",
+          "type": "boolean"
+        }
+      },
+      "title": "LocalScanners",
+      "type": "object"
+    },
+    "ObservabilityConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "content_capture": {
+          "default": "METADATA",
+          "description": "Whether prompts and diffs may appear in traces. Org-only.",
+          "enum": [
+            "FULL",
+            "METADATA"
+          ],
+          "title": "Content Capture",
+          "type": "string",
+          "x-merge": "org_only"
+        },
+        "log_level": {
+          "default": "INFO",
+          "description": "Log level.",
+          "enum": [
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR"
+          ],
+          "title": "Log Level",
+          "type": "string"
+        },
+        "otlp_endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OTLP collector endpoint. Org-only (egress).",
+          "title": "Otlp Endpoint",
+          "x-merge": "org_only"
+        },
+        "sampling_ratio": {
+          "default": 1.0,
+          "description": "Trace sampling ratio between 0 and 1.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Sampling Ratio",
+          "type": "number"
+        }
+      },
+      "title": "ObservabilityConfig",
+      "type": "object"
+    },
+    "OpsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_namespaces": {
+          "description": "Kubernetes namespaces darryl may read. Org-only.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Namespaces",
+          "type": "array",
+          "x-merge": "org_only"
+        },
+        "argocd_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Argo CD endpoint. Org-only (egress).",
+          "title": "Argocd Url",
+          "x-merge": "org_only"
+        },
+        "incident_window_minutes": {
+          "default": 120,
+          "description": "Window around an alert used to correlate changes.",
+          "minimum": 1,
+          "title": "Incident Window Minutes",
+          "type": "integer"
+        },
+        "loki_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Loki endpoint. Org-only (egress).",
+          "title": "Loki Url",
+          "x-merge": "org_only"
+        },
+        "max_log_lines": {
+          "default": 500,
+          "description": "Maximum log lines returned per query.",
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Max Log Lines",
+          "type": "integer"
+        },
+        "max_query_points": {
+          "default": 11000,
+          "description": "Maximum points per metrics range query.",
+          "minimum": 1,
+          "title": "Max Query Points",
+          "type": "integer"
+        },
+        "prometheus_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Prometheus endpoint. Org-only (egress).",
+          "title": "Prometheus Url",
+          "x-merge": "org_only"
+        },
+        "redaction_patterns": {
+          "description": "Regular expressions redacted from tool output. Lower layers may only add.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Redaction Patterns",
+          "type": "array",
+          "x-mergeable-set": true
+        }
+      },
+      "title": "OpsConfig",
+      "type": "object"
+    },
+    "PostingConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "force_dry_run": {
+          "default": false,
+          "description": "When true, no lower layer can enable external writes. Org-only.",
+          "title": "Force Dry Run",
+          "type": "boolean",
+          "x-merge": "org_only"
+        }
+      },
+      "title": "PostingConfig",
+      "type": "object"
+    },
+    "RepoConfigSource": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_head_ref": {
+          "default": false,
+          "description": "Allow a request to read .squad/config.yml from the change request head. Org-only; off by default.",
+          "title": "Allow Head Ref",
+          "type": "boolean",
+          "x-merge": "org_only"
+        }
+      },
+      "title": "RepoConfigSource",
+      "type": "object"
+    },
+    "ReviewConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_file": {
+          "default": ".squad/baseline.yml",
+          "description": "Repository file with accepted findings and mandatory expiry dates.",
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Baseline File",
+          "type": "string"
+        },
+        "chunking": {
+          "default": "split_by_file",
+          "description": "How oversized diffs are handled.",
+          "enum": [
+            "split_by_file",
+            "truncate"
+          ],
+          "title": "Chunking",
+          "type": "string"
+        },
+        "ignore_globs": {
+          "description": "Files excluded from review: generated, vendored, lockfiles, snapshots. Lower layers may only add globs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Ignore Globs",
+          "type": "array",
+          "x-mergeable-set": true
+        },
+        "max_diff_bytes": {
+          "default": 400000,
+          "description": "Diffs larger than this are chunked or truncated.",
+          "minimum": 1000,
+          "title": "Max Diff Bytes",
+          "type": "integer"
+        },
+        "max_findings": {
+          "default": 30,
+          "description": "Maximum findings published per run.",
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Findings",
+          "type": "integer"
+        },
+        "min_confidence_to_publish": {
+          "default": "medium",
+          "description": "Findings below this confidence are not published.",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Min Confidence To Publish",
+          "type": "string"
+        },
+        "min_severity_inline": {
+          "default": "minor",
+          "description": "Findings below this severity are summarised, not posted inline.",
+          "enum": [
+            "nit",
+            "minor",
+            "major",
+            "blocker"
+          ],
+          "title": "Min Severity Inline",
+          "type": "string"
+        },
+        "summary_template": {
+          "anyOf": [
+            {
+              "maxLength": 8000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Summary note template; null uses the built-in template.",
+          "title": "Summary Template"
+        },
+        "suppressions_enabled": {
+          "default": true,
+          "description": "Honour in-code suppression comments (squad-ignore <rule_id> <reason>).",
+          "title": "Suppressions Enabled",
+          "type": "boolean"
+        },
+        "verdict": {
+          "$ref": "#/$defs/VerdictPolicy",
+          "description": "Verdict thresholds."
+        }
+      },
+      "title": "ReviewConfig",
+      "type": "object"
+    },
+    "Route": {
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "description": "Agents to run when the glob matches.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Agents",
+          "type": "array"
+        },
+        "glob": {
+          "description": "Changed-file glob. '**' crosses directories, '*' does not.",
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Glob",
+          "type": "string"
+        },
+        "requires": {
+          "description": "Manifest hints the repository must satisfy, for example 'react'.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Requires",
+          "type": "array"
+        }
+      },
+      "required": [
+        "glob",
+        "agents"
+      ],
+      "title": "Route",
+      "type": "object"
+    },
+    "RoutingConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "always_run": {
+          "description": "Agents that run on every review. Lower layers may only add agents.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Always Run",
+          "type": "array",
+          "x-mergeable-set": true
+        },
+        "fan_out_concurrency": {
+          "default": 4,
+          "description": "Specialists called in parallel.",
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Fan Out Concurrency",
+          "type": "integer"
+        },
+        "routes": {
+          "description": "Changed-file glob to agent table. Lower layers may only add routes.",
+          "items": {
+            "$ref": "#/$defs/Route"
+          },
+          "title": "Routes",
+          "type": "array",
+          "x-mergeable-set": true
+        },
+        "sensitive_paths": {
+          "description": "Paths that raise the risk tier. Lower layers may only add patterns.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Sensitive Paths",
+          "type": "array",
+          "x-mergeable-set": true
+        },
+        "size_thresholds": {
+          "$ref": "#/$defs/SizeThresholds",
+          "description": "Changed-line thresholds for the risk tier. Lower layers may only lower them.",
+          "x-merge": "tighten_only"
+        },
+        "specialist_urls": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Base URL per specialist agent for HTTP fan-out. Org-only.",
+          "title": "Specialist Urls",
+          "type": "object",
+          "x-merge": "org_only"
+        },
+        "specialists_post": {
+          "default": false,
+          "description": "Let specialists publish directly instead of returning findings to michael. Lower layers may only keep it false.",
+          "title": "Specialists Post",
+          "type": "boolean",
+          "x-merge": "tighten_only",
+          "x-tighten": "false"
+        },
+        "timeouts_seconds": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Seconds per specialist call. The key 'default' applies to unlisted agents.",
+          "title": "Timeouts Seconds",
+          "type": "object"
+        }
+      },
+      "title": "RoutingConfig",
+      "type": "object"
+    },
+    "SandboxConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "default": "1",
+          "description": "CPU limit for the sandbox.",
+          "maxLength": 16,
+          "title": "Cpu",
+          "type": "string"
+        },
+        "image": {
+          "default": "code-squad-sandbox-node:latest",
+          "description": "Sandbox container image. Org-only.",
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Image",
+          "type": "string",
+          "x-merge": "org_only"
+        },
+        "memory": {
+          "default": "2Gi",
+          "description": "Memory limit for the sandbox.",
+          "maxLength": 16,
+          "title": "Memory",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 1800,
+          "description": "Wall-clock limit for one implementation run. Cannot exceed limits.max_wall_clock_seconds.",
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer",
+          "x-ceiling": "limits.max_wall_clock_seconds",
+          "x-merge": "tighten_only"
+        }
+      },
+      "title": "SandboxConfig",
+      "type": "object"
+    },
+    "SecretsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_patterns": {
+          "description": "Regular expressions a secret name must fully match. Org-only.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Patterns",
+          "type": "array",
+          "x-merge": "org_only"
+        },
+        "provider": {
+          "default": "k8s_files",
+          "description": "Where secret values come from. Org-only.",
+          "enum": [
+            "k8s_files",
+            "env",
+            "file",
+            "vault"
+          ],
+          "title": "Provider",
+          "type": "string",
+          "x-merge": "org_only"
+        }
+      },
+      "title": "SecretsConfig",
+      "type": "object"
+    },
+    "SecurityConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_risks": {
+          "description": "Accepted advisories. Expired entries are ignored with a warning. Lower layers may only add entries.",
+          "items": {
+            "$ref": "#/$defs/AcceptedRisk"
+          },
+          "title": "Accepted Risks",
+          "type": "array",
+          "x-mergeable-set": true
+        },
+        "allowed_hosts": {
+          "description": "Hosts intelligence clients may contact. Org-only.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Hosts",
+          "type": "array",
+          "x-merge": "org_only"
+        },
+        "cache_ttl_seconds": {
+          "default": 21600,
+          "description": "Advisory cache lifetime.",
+          "minimum": 0,
+          "title": "Cache Ttl Seconds",
+          "type": "integer"
+        },
+        "local_scanners": {
+          "$ref": "#/$defs/LocalScanners",
+          "description": "Local scanners run in the sandbox when their binaries exist."
+        },
+        "offline_mode": {
+          "default": "low_confidence",
+          "description": "When advisory sources are unreachable: mark the run incomplete, or keep going with low-confidence findings.",
+          "enum": [
+            "fail_incomplete",
+            "low_confidence"
+          ],
+          "title": "Offline Mode",
+          "type": "string"
+        },
+        "severity_mapping": {
+          "$ref": "#/$defs/SeverityMapping",
+          "description": "Thresholds mapping advisory data to severity. Lower layers may only lower the numeric thresholds."
+        },
+        "sources": {
+          "$ref": "#/$defs/SecuritySources",
+          "description": "Intelligence sources switched on."
+        }
+      },
+      "title": "SecurityConfig",
+      "type": "object"
+    },
+    "SecuritySources": {
+      "additionalProperties": false,
+      "properties": {
+        "epss": {
+          "default": true,
+          "description": "Query FIRST EPSS scores.",
+          "title": "Epss",
+          "type": "boolean"
+        },
+        "ghsa": {
+          "default": true,
+          "description": "Query GitHub advisories.",
+          "title": "Ghsa",
+          "type": "boolean"
+        },
+        "kev": {
+          "default": true,
+          "description": "Query the CISA KEV catalogue.",
+          "title": "Kev",
+          "type": "boolean"
+        },
+        "nvd": {
+          "default": true,
+          "description": "Query the NVD for CVSS data.",
+          "title": "Nvd",
+          "type": "boolean"
+        },
+        "osv": {
+          "default": true,
+          "description": "Query OSV for known vulnerabilities.",
+          "title": "Osv",
+          "type": "boolean"
+        }
+      },
+      "title": "SecuritySources",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "blocker",
+        "major",
+        "minor",
+        "nit"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "SeverityMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "cvss_blocker": {
+          "default": 9.0,
+          "description": "CVSS score at or above which a finding is a blocker.",
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Cvss Blocker",
+          "type": "number",
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
+        },
+        "cvss_major": {
+          "default": 7.0,
+          "description": "CVSS score at or above which a finding is major.",
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Cvss Major",
+          "type": "number",
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
+        },
+        "epss_major": {
+          "default": 0.1,
+          "description": "EPSS score at or above which a finding is major.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Epss Major",
+          "type": "number",
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
+        },
+        "kev_is_blocker": {
+          "default": true,
+          "description": "A KEV-listed vulnerability is a blocker.",
+          "title": "Kev Is Blocker",
+          "type": "boolean",
+          "x-merge": "tighten_only",
+          "x-tighten": "true"
+        }
+      },
+      "title": "SeverityMapping",
+      "type": "object"
+    },
+    "SizeThresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "high": {
+          "default": 1000,
+          "description": "Changed lines at or above which the risk tier is high.",
+          "minimum": 1,
+          "title": "High",
+          "type": "integer",
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
+        },
+        "medium": {
+          "default": 300,
+          "description": "Changed lines at or above which the risk tier is medium.",
+          "minimum": 1,
+          "title": "Medium",
+          "type": "integer",
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
+        }
+      },
+      "title": "SizeThresholds",
+      "type": "object"
+    },
+    "SkillsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_sources": {
+          "description": "Skill sources in use. Lower layers may only pick a subset.",
+          "items": {
+            "enum": [
+              "payload",
+              "repo",
+              "builtin"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Sources",
+          "type": "array",
+          "x-merge": "tighten_only",
+          "x-tighten": "subset"
+        },
+        "max_skill_bytes": {
+          "default": 20480,
+          "description": "Maximum bytes per skill body; larger bodies are truncated with a warning.",
+          "minimum": 1,
+          "title": "Max Skill Bytes",
+          "type": "integer",
+          "x-ceiling": "limits.max_skill_bytes",
+          "x-merge": "tighten_only"
+        },
+        "max_skills": {
+          "default": 20,
+          "description": "Maximum skills loaded per run.",
+          "minimum": 1,
+          "title": "Max Skills",
+          "type": "integer",
+          "x-ceiling": "limits.max_skills",
+          "x-merge": "tighten_only"
+        },
+        "max_total_bytes": {
+          "default": 81920,
+          "description": "Maximum total skill bytes per run.",
+          "minimum": 1,
+          "title": "Max Total Bytes",
+          "type": "integer",
+          "x-ceiling": "limits.max_total_skill_bytes",
+          "x-merge": "tighten_only"
+        },
+        "paths": {
+          "description": "Candidate skill directories in precedence order.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "ref": {
+          "default": "base",
+          "description": "Branch skills are read from. 'head' lets a change request edit its own review rules, so it is org-only.",
+          "enum": [
+            "base",
+            "head"
+          ],
+          "title": "Ref",
+          "type": "string",
+          "x-merge": "org_only"
+        }
+      },
+      "title": "SkillsConfig",
+      "type": "object"
+    },
+    "TriggerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_commenters": {
+          "description": "Users whose comments may trigger the squad. Empty means nobody. Lower layers may only shrink the list.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Commenters",
+          "type": "array",
+          "x-merge": "tighten_only",
+          "x-tighten": "subset"
+        },
+        "debounce_seconds": {
+          "default": 30,
+          "description": "Quiet period before a burst of events starts one run.",
+          "maximum": 3600,
+          "minimum": 0,
+          "title": "Debounce Seconds",
+          "type": "integer"
+        },
+        "events": {
+          "description": "Events that start a review.",
+          "items": {
+            "enum": [
+              "change_request_opened",
+              "change_request_updated",
+              "change_request_ready",
+              "review_requested",
+              "comment",
+              "issue_assigned"
+            ],
+            "type": "string"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "on_push": {
+          "default": false,
+          "description": "Also react to new pushes (change_request_updated).",
+          "title": "On Push",
+          "type": "boolean"
+        },
+        "skip_bot_authors": {
+          "default": true,
+          "description": "Skip change requests and comments authored by bots.",
+          "title": "Skip Bot Authors",
+          "type": "boolean"
+        },
+        "skip_draft": {
+          "default": true,
+          "description": "Skip draft change requests.",
+          "title": "Skip Draft",
+          "type": "boolean"
+        },
+        "skip_labels": {
+          "description": "Change requests carrying any of these labels are skipped.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Skip Labels",
+          "type": "array"
+        },
+        "skip_wip_titles": {
+          "default": true,
+          "description": "Skip change requests whose title starts with WIP or Draft.",
+          "title": "Skip Wip Titles",
+          "type": "boolean"
+        },
+        "slash_commands": {
+          "description": "Slash commands recognised in comments, without the slash.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Slash Commands",
+          "type": "array"
+        }
+      },
+      "title": "TriggerConfig",
+      "type": "object"
+    },
+    "VcsAuth": {
+      "additionalProperties": false,
+      "properties": {
+        "app_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "GitHub App id (numeric).",
+          "title": "App Id"
+        },
+        "installation_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "GitHub App installation id (numeric).",
+          "title": "Installation Id"
+        },
+        "private_key_secret": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,252}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Secret name holding the GitHub App private key (PEM).",
+          "title": "Private Key Secret",
+          "x-secret-ref": true
+        },
+        "token_secret": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,252}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Secret name holding the VCS access token.",
+          "title": "Token Secret",
+          "x-secret-ref": true
+        }
+      },
+      "title": "VcsAuth",
+      "type": "object"
+    },
+    "VcsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "approve_mode": {
+          "default": "none",
+          "description": "Whether a positive verdict may approve the change request. Can only become stricter below the org layer (none < comment < approve).",
+          "enum": [
+            "none",
+            "comment",
+            "approve"
+          ],
+          "title": "Approve Mode",
+          "type": "string",
+          "x-merge": "tighten_only",
+          "x-order": [
+            "none",
+            "comment",
+            "approve"
+          ],
+          "x-tighten": "le"
+        },
+        "auth": {
+          "$ref": "#/$defs/VcsAuth",
+          "description": "Credentials as secret names, matched against secrets.allowed_patterns.",
+          "x-merge": "org_only"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "API base URL for self-managed or enterprise hosts. Org-only.",
+          "title": "Base Url",
+          "x-merge": "org_only"
+        },
+        "bot_username": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Login of the bot identity, used for loop prevention.",
+          "title": "Bot Username"
+        },
+        "comment_style": {
+          "default": "both",
+          "description": "Publish inline discussions, a summary note, or both.",
+          "enum": [
+            "inline",
+            "summary",
+            "both"
+          ],
+          "title": "Comment Style",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Label name overrides, keyed by logical label name.",
+          "title": "Labels",
+          "type": "object"
+        },
+        "protected_branches": {
+          "description": "Branches the squad must never write to. Lower layers may only add.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Protected Branches",
+          "type": "array",
+          "x-mergeable-set": true
+        },
+        "provider": {
+          "default": "auto",
+          "description": "VCS provider. 'auto' infers it from base_url for github.com and gitlab.com. Org-only: set it in the org config or the project registry.",
+          "enum": [
+            "gitlab",
+            "github",
+            "auto"
+          ],
+          "title": "Provider",
+          "type": "string",
+          "x-merge": "org_only"
+        },
+        "status_context_template": {
+          "default": "ai-review/{agent}",
+          "description": "Commit status or check name template; {agent} is the agent id.",
+          "maxLength": 128,
+          "title": "Status Context Template",
+          "type": "string"
+        },
+        "status_mode": {
+          "default": "auto",
+          "description": "How verdicts are published. 'auto' prefers check runs and falls back.",
+          "enum": [
+            "check_run",
+            "commit_status",
+            "auto"
+          ],
+          "title": "Status Mode",
+          "type": "string"
+        }
+      },
+      "title": "VcsConfig",
+      "type": "object"
+    },
+    "VerdictPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "major_threshold": {
+          "default": 1,
+          "description": "Number of major findings at or above which the verdict becomes 'comment' instead of 'approve' (default 1: any major prevents approve).",
+          "minimum": 0,
+          "title": "Major Threshold",
+          "type": "integer"
+        },
+        "request_changes_on_blocker": {
+          "default": true,
+          "description": "A blocker finding requests changes. Lower layers cannot turn it off.",
+          "title": "Request Changes On Blocker",
+          "type": "boolean",
+          "x-merge": "tighten_only",
+          "x-tighten": "true"
+        }
+      },
+      "title": "VerdictPolicy",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Repository file: a partial config that may extend a named profile.",
+  "properties": {
+    "agents": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentConfig"
+      },
+      "description": "Per-agent settings keyed by agent id.",
+      "title": "Agents",
+      "type": "object"
+    },
+    "extends": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Profile to apply before this file's own keys (built-in or registry profile).",
+      "title": "Extends"
+    },
+    "extra_agents": {
+      "description": "Additional agents declared in configuration. Org-only.",
+      "items": {
+        "$ref": "#/$defs/ExtraAgent"
+      },
+      "title": "Extra Agents",
+      "type": "array",
+      "x-merge": "org_only"
+    },
+    "implementer": {
+      "$ref": "#/$defs/ImplementerConfig",
+      "description": "Implementation settings (pam)."
+    },
+    "limits": {
+      "$ref": "#/$defs/Limits",
+      "description": "Platform ceilings no lower layer can exceed. Org-only.",
+      "x-merge": "org_only"
+    },
+    "llm": {
+      "$ref": "#/$defs/LlmConfig",
+      "description": "LLM gateway settings."
+    },
+    "observability": {
+      "$ref": "#/$defs/ObservabilityConfig",
+      "description": "Tracing, logging and content capture."
+    },
+    "ops": {
+      "$ref": "#/$defs/OpsConfig",
+      "description": "Operations (darryl) settings."
+    },
+    "posting": {
+      "$ref": "#/$defs/PostingConfig",
+      "description": "External write policy."
+    },
+    "repo_config": {
+      "$ref": "#/$defs/RepoConfigSource",
+      "description": "Where repository config is read from."
+    },
+    "review": {
+      "$ref": "#/$defs/ReviewConfig",
+      "description": "Review policy."
+    },
+    "routing": {
+      "$ref": "#/$defs/RoutingConfig",
+      "description": "Routing, risk tiers and fan-out."
+    },
+    "secrets": {
+      "$ref": "#/$defs/SecretsConfig",
+      "description": "Secret provider and allowed names. Org-only.",
+      "x-merge": "org_only"
+    },
+    "security": {
+      "$ref": "#/$defs/SecurityConfig",
+      "description": "Vulnerability intelligence and accepted risks."
+    },
+    "skills": {
+      "$ref": "#/$defs/SkillsConfig",
+      "description": "Runtime skill loading."
+    },
+    "trigger": {
+      "$ref": "#/$defs/TriggerConfig",
+      "description": "When and from whom reviews start."
+    },
+    "vcs": {
+      "$ref": "#/$defs/VcsConfig",
+      "description": "Version control settings."
+    }
+  },
+  "title": "RepoConfig",
+  "type": "object"
+}
