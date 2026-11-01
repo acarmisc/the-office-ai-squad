@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Final, Literal, cast
 
 from code_squad._common.sandbox.base import Sandbox
+from code_squad._common.sandbox.env import GitIdentity
 from code_squad._common.sandbox.errors import SandboxError
 from code_squad._common.sandbox.k8s_job import (
     DEFAULT_ACTIVE_DEADLINE_S,
@@ -36,12 +37,14 @@ def build_sandbox(
     sleep: Callable[[float], None] = time.sleep,
     exec_env: Mapping[str, str] | None = None,
     allowed_extra: tuple[str, ...] = (),
+    git_identity: GitIdentity | None = None,
 ) -> Sandbox:
     if kind == "local":
         return LocalProcessSandbox(
             workspace_root=workspace_root,
             allowed_extra=allowed_extra,
             exec_env=exec_env,
+            git_identity=git_identity,
         )
     settings = _kubernetes_settings(os.environ if environ is None else environ)
     api = core_api if core_api is not None else _incluster_core_api()
@@ -57,6 +60,7 @@ def build_sandbox(
         sleep=sleep,
         allowed_extra=allowed_extra,
         exec_env=exec_env,
+        git_identity=git_identity,
     )
 
 

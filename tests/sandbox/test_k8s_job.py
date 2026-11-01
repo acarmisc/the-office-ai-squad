@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -368,3 +369,24 @@ def test_resource_sections_are_restricted(
             clock=clock,
             sleep=clock.sleep,
         )
+
+
+def test_factory_passes_git_identity_to_both_backends(tmp_path: Path) -> None:
+    from code_squad._common.sandbox.env import GitIdentity
+
+    identity = GitIdentity(name="pam (code-squad)", email="pam@code-squad.invalid")
+    env = {"SANDBOX_NAMESPACE": "squad-sandbox", "SANDBOX_IMAGE": "sandbox:dev"}
+    fake = FakeKubernetes(FakeClock())
+    sandboxes = [
+        build_sandbox("local", workspace_root=tmp_path, git_identity=identity),
+        build_sandbox(
+            "kubernetes",
+            environ=env,
+            core_api=fake,
+            stream_fn=fake.stream,
+            git_identity=identity,
+        ),
+    ]
+    for sandbox in sandboxes:
+        base_env: dict[str, str] = sandbox._base_env  # type: ignore[attr-defined]
+        assert identity.email in base_env.values()
