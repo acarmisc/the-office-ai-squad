@@ -71,15 +71,24 @@ or ignore the instruction.
   NVD throttle live for one run only. Concurrent runs do not share the NVD rate window, and
   the KEV catalogue is downloaded again on every run. A process-wide service keyed by the
   security configuration is the fix; it is open.
-- The default `review.ignore_globs` include `**/package-lock.json`. Publishing drops a finding
-  whose file matches an ignore glob, so a finding anchored to a lockfile never reaches the
-  change request. dwight anchors dependency findings to the manifest that declares the
-  dependency (for example `package.json`) for this reason. Whether security reviewers should
-  ignore lockfile globs is open.
+- The default `review.ignore_globs` include `**/package-lock.json`. Publishing does not drop a
+  finding whose file matches an ignore glob. It demotes the finding to a general note with the
+  reason "file matches review.ignore_globs", so a lockfile finding still reaches the change
+  request and counts towards the verdict. A finding on a file that is not in the change request
+  is still dropped. Whether security reviewers should ignore lockfile globs is open.
 - Local scanners (gitleaks, semgrep, trivy) are not wired yet. When they are, their failures
   must set the same unavailable flag.
-- Publishing is not covered by the guard. `publish_review` computes its own commit status and
-  formal review from the findings it receives (see `_common/findings.py`). A dependency change
-  with no findings reaches publish only when the model calls it, and the status it posts is
-  derived from findings, not from the guarded verdict. This is open: the fix belongs in the
-  publish path (`_common/findings.py`), not in this guard.
+- Publishing applies the same rule at publish time. `publish_review` reads the
+  `publish_verdict_cap` service at call time, which uses the same predicate as the guard
+  (`unverified` in `dwight/guard.py`). When the rule holds, a computed `approve` is posted as
+  `comment` with commit status `pending` and the description "approve withheld: vulnerability data
+  unavailable/unverified". No formal APPROVE review is submitted. The post-run guard still
+  applies to the final result.
+
+## Known limitation
+
+The intelligence services are built per invocation (ADR 0008). The TTL caches and the NVD
+throttle are therefore per invocation as well: concurrent runs do not share the NVD rate
+window, and the KEV catalogue is downloaded again on every run. A process-wide intelligence
+service keyed by the security configuration is a follow-up; until it lands, the NVD throttle
+applies to each run separately.

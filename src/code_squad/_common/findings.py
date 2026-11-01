@@ -34,6 +34,7 @@ from code_squad._common.vcs.base import (
 from code_squad._common.vcs.diff import line_in_changed_hunk
 
 CommentStyle = Literal["inline", "summary", "both"]
+VerdictCap = Literal["approve", "comment", "request_changes"]
 Bucket = Literal["inline", "general", "dropped"]
 _MARKER_RE: Final = re.compile(r"<!-- code-squad:([^\s>]+) -->")
 _WORD_RE: Final = re.compile(r"[a-z]{4,}")
@@ -64,6 +65,13 @@ _STATUS: Final[dict[Verdict, tuple[StatusState, str]]] = {
     Verdict.INCOMPLETE: (StatusState.PENDING, "review incomplete"),
 }
 _STALE_WARNING: Final = "change request head moved during review; findings were dropped"
+_IGNORED_NOTE: Final = "file matches review.ignore_globs"
+_VERDICT_RANK: Final[dict[Verdict, int]] = {
+    Verdict.INCOMPLETE: -1,
+    Verdict.REQUEST_CHANGES: 0,
+    Verdict.COMMENT: 1,
+    Verdict.APPROVE: 2,
+}
 
 
 def marker(finding_id: str) -> str:
@@ -104,6 +112,8 @@ class PublishOptions:
     min_severity_inline: Severity = Severity.MINOR
     max_findings: int = 50
     major_threshold: int = 1
+    verdict_cap: VerdictCap | None = None
+    verdict_cap_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -146,11 +156,11 @@ def _anchor_one(
 ) -> tuple[Bucket, str]:
     if finding.head_sha != head:
         return "dropped", "stale: finding was produced for another head"
-    if any(glob_match(glob, finding.file) for glob in ignore_globs):
-        return "dropped", "path matches review ignore_globs"
     file_diff = files.get(finding.file)
     if file_diff is None:
         return "dropped", "file is not part of the change request"
+    if any(glob_match(glob, finding.file) for glob in ignore_globs):
+        return "general", _IGNORED_NOTE
     if file_diff.truncated:
         return "general", "file diff is truncated; posted as a general note"
     if not line_in_changed_hunk(file_diff, finding.line_start, finding.line_end):
@@ -377,20 +387,41 @@ def _publish_once(
         )
         posted = posted.model_copy(update={"discussions": len(new_inline)})
     valid = [*inline, *(item for item, _ in general)]
-    verdict = compute_verdict(valid, opts.major_threshold)
+    computed = compute_verdict(valid, opts.major_threshold)
+    verdict = _capped(computed, opts.verdict_cap)
     if opts.comment_style in ("summary", "both"):
         body = render_summary(
             agent, verdict, summary, inline, general, warnings, head_sha
         )
         provider.upsert_comment(ref, summary_marker(agent), body)
         posted = posted.model_copy(update={"notes": 1})
-    state, description = _STATUS[verdict]
+    state, description = _status_for(computed, verdict, opts)
+    if computed is Verdict.APPROVE and verdict is not Verdict.APPROVE:
+        warnings.append(_withheld(opts))
     provider.set_status(ref.project, head_sha, state, context, description, "")
     posted = posted.model_copy(update={"status": state.value})
     warnings.extend(_approve(provider, ref, head_sha, verdict, opts))
     return PublishOutcome(
         posted, tuple(warnings), verdict, tuple(inline), tuple(general)
     )
+
+
+def _capped(computed: Verdict, cap: VerdictCap | None) -> Verdict:
+    if cap is None or _VERDICT_RANK[computed] <= _VERDICT_RANK[Verdict(cap)]:
+        return computed
+    return Verdict(cap)
+
+
+def _status_for(
+    computed: Verdict, verdict: Verdict, opts: PublishOptions
+) -> tuple[StatusState, str]:
+    if computed is Verdict.APPROVE and verdict is Verdict.COMMENT:
+        return StatusState.PENDING, _withheld(opts)
+    return _STATUS[verdict]
+
+
+def _withheld(opts: PublishOptions) -> str:
+    return f"approve withheld: {opts.verdict_cap_reason or 'verdict capped'}"
 
 
 def _unique_by_id(findings: Sequence[Finding]) -> list[Finding]:

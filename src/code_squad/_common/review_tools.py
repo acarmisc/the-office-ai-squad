@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from typing import Any, Final, cast
 
 from pydantic import ValidationError
@@ -10,7 +11,12 @@ from strands import tool
 
 from code_squad._common.context import current
 from code_squad._common.contract import Finding
-from code_squad._common.findings import PublishOptions, PublishOutcome, publish
+from code_squad._common.findings import (
+    PublishOptions,
+    PublishOutcome,
+    VerdictCap,
+    publish,
+)
 from code_squad._common.posting import DryRunError
 from code_squad._common.untrusted import wrap_untrusted
 from code_squad._common.vcs.base import (
@@ -363,7 +369,7 @@ def publish_review(findings: list[dict[str, Any]], summary: str) -> str:
         return "change request not found in this run"
     provider = _provider()
     head = _review_head(provider, ref)
-    options = ctx.services.get("publish_options")
+    options = _publish_options(ctx.services.get("publish_options"))
     outcome = publish(
         provider,
         ref,
@@ -372,11 +378,27 @@ def publish_review(findings: list[dict[str, Any]], summary: str) -> str:
         summary[:4000],
         agent=ctx.agent,
         gate=ctx.gate,
-        options=options if isinstance(options, PublishOptions) else None,
+        options=options,
         journal=ctx.services.get("journal"),
         idempotency_key=ctx.request.idempotency_key,
     )
     return _describe(outcome)
+
+
+def _publish_options(configured: object) -> PublishOptions:
+    base = configured if isinstance(configured, PublishOptions) else PublishOptions()
+    cap = _verdict_cap(current().services.get("publish_verdict_cap"))
+    if cap is None:
+        return base
+    return replace(base, verdict_cap=cap[0], verdict_cap_reason=cap[1])
+
+
+def _verdict_cap(source: object) -> tuple[VerdictCap, str] | None:
+    """Run-time verdict cap registered by a service, e.g. dwight's offline guard."""
+    if not callable(source):
+        return None
+    fetch = cast(Callable[[], tuple[VerdictCap, str] | None], source)
+    return fetch()
 
 
 def _review_head(provider: VcsProvider, ref: ChangeRequestRef) -> str:

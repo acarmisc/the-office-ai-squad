@@ -101,6 +101,7 @@ LODASH_INPUT: list[dict[str, Any]] = [
         "source_file": LOCK_PATH,
     }
 ]
+APPROVE_ORG = "vcs:\n  approve_mode: approve\n"
 BATCH = "https://api.osv.dev/v1/querybatch"
 VULN_35JH = "https://api.osv.dev/v1/vulns/GHSA-35jh-r3h4-6jhm"
 GHSA = "https://api.github.com/advisories"
@@ -400,6 +401,54 @@ def test_approve_without_any_lookup_on_a_dependency_change_is_withheld(
 
     assert result["verdict"] == "comment"
     assert f"{UNVERIFIED}; approve withheld" in result["warnings"]
+
+
+def test_offline_publish_withholds_approve_without_a_formal_approval(
+    tmp_path: Path,
+) -> None:
+    fake = _provider()
+    model = ScriptedModel(
+        [
+            Turn(
+                (ToolCall("publish_review", {"findings": [], "summary": "Nothing."}),)
+            ),
+            finish_turn("approve", "Nothing found.", []),
+        ]
+    )
+    client = _client(fake, models(model), tmp_path, org=APPROVE_ORG, intel=_service())
+    result = invoke(client, post=True)
+
+    assert result["verdict"] == "comment"
+    status = writes_of(fake, "set_status")[-1]
+    assert status["state"] == "pending"
+    assert status["description"] == f"approve withheld: {UNVERIFIED}"
+    assert writes_of(fake, "submit_review_verdict") == []
+
+
+def test_complete_lookups_publish_and_submit_the_formal_approval(
+    tmp_path: Path,
+) -> None:
+    fake = _provider()
+    model = ScriptedModel(
+        [
+            Turn((ToolCall("parse_dependencies", {}),)),
+            Turn((ToolCall("lookup_vulnerabilities", {"packages": LODASH_INPUT}),)),
+            Turn(
+                (ToolCall("publish_review", {"findings": [], "summary": "Nothing."}),)
+            ),
+            finish_turn("approve", "Nothing found.", []),
+        ]
+    )
+    with respx.mock(assert_all_mocked=True, assert_all_called=False) as router:
+        _online_routes(router)
+        result = invoke(
+            _client(fake, models(model), tmp_path, org=APPROVE_ORG), post=True
+        )
+
+    assert result["verdict"] == "approve"
+    assert writes_of(fake, "set_status")[-1]["state"] == "success"
+    events = [w["event"] for w in writes_of(fake, "submit_review_verdict")]
+    assert events == ["APPROVE"]
 
 
 def test_complete_lookups_keep_an_approve(tmp_path: Path) -> None:

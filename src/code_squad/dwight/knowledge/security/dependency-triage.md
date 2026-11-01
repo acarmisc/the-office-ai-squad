@@ -27,24 +27,22 @@ Rank dependency findings in this order, highest first:
 
 ### SEC-DEP-002 — Severity mapping to review scale
 
-Use the first rule that matches. The review scale is critical, high, medium, low, and informational.
+The review scale is the contract scale: `blocker`, `major`, `minor`, and `nit`. Use the first row that matches. The thresholds are the defaults of `SeverityThresholds` in `dwight/intel/triage.py`, which the `security.severity_mapping` configuration sets.
 
 | Condition | Review severity |
 |---|---|
-| In KEV and reachable (or reachability unknown and the package is on the request path) | critical |
-| In KEV, not shown reachable | high |
-| CVSS base 9.0 to 10.0 and reachable | critical |
-| CVSS base 7.0 to 8.9 and reachable | high |
-| CVSS base 7.0 to 8.9, not reachable, or reachability unknown on a non-request path | medium |
-| EPSS at or above 0.10 and reachable (any CVSS) | high |
-| CVSS base 4.0 to 6.9 | medium |
-| CVSS base 0.1 to 3.9 | low |
-| Advisory with no CVSS and no exploit data, reachable | medium |
-| Unreachable, no exploit data, CVSS below 7.0 | low or informational |
+| In CISA KEV, with `kev_is_blocker` true (default) | blocker |
+| CVSS base 9.0 to 10.0 | blocker |
+| CVSS base 7.0 to 8.9 | major |
+| EPSS at or above 0.10 (any CVSS) | major |
+| CVSS base 4.0 to 6.9 | minor |
+| CVSS base 0.1 to 3.9 | nit |
+| Advisory with no CVSS and no exploit data | nit |
 
-- **Note:** EPSS thresholds are guidance. State the value used in the finding.
+- **Note:** the lookup output states the suggested severity and confidence for each advisory. Use that value. EPSS thresholds are guidance: state the EPSS value used in the finding.
+- **Reachability:** the suggested severity does not depend on reachability. Record reachability as evidence (SEC-DEP-003) in the rationale. Do not lower a suggested severity. A reviewer may raise it with a stated reason, for example an advisory with no CVSS that is reachable from a request path may be raised to `minor`.
 - **Confidence:** when lookups failed or reachability is unknown, set `confidence: low` and apply the offline rule in SEC-DEP-004.
-- **Default severity:** as the table.
+- **Verdict:** the verdict follows from the severities. Any `blocker` gives `request_changes`. Major findings at or above `review.verdict.major_threshold` (default 1) give `comment`. Otherwise the verdict is `approve`, subject to SEC-DEP-004.
 
 ### SEC-DEP-003 — Reachability evidence
 
@@ -56,7 +54,7 @@ Use the first rule that matches. The review scale is critical, high, medium, low
 ### SEC-DEP-004 — Offline and restricted-egress rule
 
 - **Rule:** when vulnerability data cannot be retrieved (lookups fail, time out, or are blocked), mark each affected finding `confidence: low` and state "vulnerability data unavailable or unverified" in the summary.
-- **Hard rule:** never return an `approve` verdict for a diff that touches dependencies when vulnerability data is missing. Return `request changes` or the equivalent non-approving verdict, and name the missing check.
+- **Hard rule:** never return an `approve` verdict for a diff that touches dependencies when vulnerability data is missing. Return `request_changes` or `comment`, and name the missing check.
 - **Why it matters:** an approval based on missing data looks like an assurance that did not happen.
 - **Default severity:** not applicable; governs the verdict.
 
@@ -76,7 +74,7 @@ Use the first rule that matches. The review scale is critical, high, medium, low
 
 - **Look for:** dependencies with no resolved version in the lockfile, floating ranges (`*`, `latest`, `>=`) for runtime packages, and base images without digests.
 - **Why it matters:** the vulnerable version cannot be determined, so triage is impossible.
-- **Default severity:** medium for production dependencies; low for dev tooling.
+- **Default severity:** minor for production dependencies; nit for dev tooling.
 
 ### SEC-DEP-008 — Redaction and reporting
 
@@ -96,6 +94,6 @@ Use the first rule that matches. The review scale is critical, high, medium, low
 
 1. Parse the changed dependency set, including versions, from lockfiles where possible.
 2. Look up advisories for each new or changed version. Record the lookup source and time.
-3. Apply the ranking (SEC-DEP-001), the reachability check (SEC-DEP-003), and the mapping (SEC-DEP-002).
+3. Apply the ranking (SEC-DEP-001), the reachability check (SEC-DEP-003), and the mapping (SEC-DEP-002). Derive the verdict from the severities.
 4. If lookups failed, apply SEC-DEP-004 before writing the verdict.
 5. Report each finding with the package, version, advisory id, KEV and EPSS status, reachability evidence, and first fixed version. Redact secrets.

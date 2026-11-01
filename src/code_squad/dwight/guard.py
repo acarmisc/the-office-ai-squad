@@ -63,12 +63,21 @@ def accepted_risk_guard(
     )
 
 
-def _degraded(result: InvocationResult, services: Mapping[str, Any]) -> bool:
+def unverified(services: Mapping[str, Any], tool_calls: Mapping[str, int]) -> bool:
+    """True when a dependency change lacks verified vulnerability data.
+
+    Shared by the post-run guard and the publish-time verdict cap (ADR 0009), so both
+    apply the same rule.
+    """
     if not _touches_manifests(services):
         return False
     if services.get(INCOMPLETE_FLAG) is True:
         return True
-    return not any(result.stats.tool_calls.get(name) for name in LOOKUP_TOOLS)
+    return not any(tool_calls.get(name) for name in LOOKUP_TOOLS)
+
+
+def _degraded(result: InvocationResult, services: Mapping[str, Any]) -> bool:
+    return unverified(services, result.stats.tool_calls)
 
 
 def _touches_manifests(services: Mapping[str, Any]) -> bool:

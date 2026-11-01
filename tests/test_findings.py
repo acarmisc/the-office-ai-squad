@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from code_squad._common.contract import Confidence, Finding, Severity, Verdict
@@ -42,6 +44,9 @@ def _finding(**overrides: object) -> Finding:
     }
     base.update(overrides)
     return Finding.model_validate(base).with_id()
+
+
+_SCENARIO = "An attacker-controlled value reaches the import."
 
 
 def _seeded() -> FakeVcsProvider:
@@ -99,11 +104,71 @@ def test_anchor_buckets_inline_general_and_dropped() -> None:
     assert "stale" in dropped[stale.id]
 
 
-def test_ignore_globs_drop_findings_before_anchoring() -> None:
+def test_ignore_globs_demote_findings_on_changed_files_to_general_notes() -> None:
     diff = _seeded().get_diff(REF, HEAD)
     report = anchor_findings([_finding()], diff, HEAD, ignore_globs=("src/*.tsx",))
     assert report.inline == ()
-    assert "ignore_globs" in report.dropped[0][1]
+    assert report.dropped == ()
+    assert report.general[0][1] == "file matches review.ignore_globs"
+
+
+def test_ignore_globs_still_drop_findings_for_files_outside_the_change() -> None:
+    diff = _seeded().get_diff(REF, HEAD)
+    outside = _finding(file="src/Missing.tsx")
+    report = anchor_findings([outside], diff, HEAD, ignore_globs=("src/*.tsx",))
+    assert report.general == ()
+    assert "not part of the change request" in report.dropped[0][1]
+
+
+def test_ignored_file_blocker_still_requests_changes_at_publication() -> None:
+    blocker = _finding(severity=Severity.BLOCKER, failure_scenario=_SCENARIO)
+    options = PublishOptions(ignore_globs=("src/*.tsx",))
+    outcome = _publish(_seeded(), [blocker], options=options)
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+    assert [reason for _finding_item, reason in outcome.general] == [
+        "file matches review.ignore_globs"
+    ]
+
+
+def _writes(fake: FakeVcsProvider, kind: str) -> list[dict[str, Any]]:
+    return [data for name, data in fake.writes if name == kind]
+
+
+def test_verdict_cap_withholds_approve_as_pending_comment() -> None:
+    fake = _seeded()
+    options = PublishOptions(
+        approve_mode="approve",
+        verdict_cap="comment",
+        verdict_cap_reason="vulnerability data unavailable/unverified",
+    )
+    outcome = _publish(fake, [], options=options)
+    assert outcome.verdict is Verdict.COMMENT
+    status = _writes(fake, "set_status")[-1]
+    assert status["state"] == "pending"
+    assert (
+        status["description"]
+        == "approve withheld: vulnerability data unavailable/unverified"
+    )
+    assert _writes(fake, "submit_review_verdict") == []
+    assert outcome.posted.status == "pending"
+    assert any(w.startswith("approve withheld") for w in outcome.warnings)
+
+
+def test_verdict_cap_never_raises_a_blocking_verdict() -> None:
+    fake = _seeded()
+    options = PublishOptions(verdict_cap="comment", verdict_cap_reason="x")
+    blocker = _finding(severity=Severity.BLOCKER, failure_scenario=_SCENARIO)
+    outcome = _publish(fake, [blocker], options=options)
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+    assert _writes(fake, "set_status")[-1]["state"] == "failed"
+
+
+def test_uncapped_approve_is_submitted_as_a_formal_approval() -> None:
+    fake = _seeded()
+    outcome = _publish(fake, [], options=PublishOptions(approve_mode="approve"))
+    assert outcome.verdict is Verdict.APPROVE
+    assert _writes(fake, "set_status")[-1]["state"] == "success"
+    assert [w["event"] for w in _writes(fake, "submit_review_verdict")] == ["APPROVE"]
 
 
 def test_dedupe_against_existing_skips_findings_with_a_known_marker() -> None:

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
+
+import pytest
 
 from code_squad._common.common_tools import finish
 from code_squad._common.contract import InvocationResult, RunStatus
 from code_squad._common.fake_model import ScriptedModel, ToolCall, Turn
+from code_squad._common.findings import PublishOptions
 from code_squad._common.review_tools import (
     MAX_CONTEXT_BYTES,
     MAX_READ_LINES,
@@ -177,6 +181,49 @@ def test_publish_review_rejects_invalid_findings_without_writing() -> None:
     assert any(
         "finding 0 rejected" in t for t in tool_result_texts(model.calls[-1].messages)
     )
+
+
+@pytest.mark.parametrize(
+    ("cap", "expected_verdict", "expected_status"),
+    [
+        (
+            lambda: ("comment", "vulnerability data unavailable/unverified"),
+            "comment",
+            "pending",
+        ),
+        (lambda: None, "approve", "success"),
+    ],
+)
+def test_publish_review_applies_the_verdict_cap_from_the_services(
+    cap: Callable[[], tuple[str, str] | None],
+    expected_verdict: str,
+    expected_status: str,
+) -> None:
+    fake = _fake()
+    turns = [
+        Turn((ToolCall("publish_review", {"findings": [], "summary": "Nothing."}),)),
+        finish_turn("approve", "Nothing."),
+    ]
+    model = ScriptedModel(turns)
+    run_task(
+        make_spec(tools=TOOLS),
+        request(project=s.PROJECT, target=str(s.NUMBER), post=True),
+        services={
+            "vcs": fake,
+            "publish_options": PublishOptions(approve_mode="approve"),
+            "publish_verdict_cap": cap,
+        },
+        model_factory=factory_of(model),
+    )
+    text = next(
+        t
+        for t in tool_result_texts(model.calls[-1].messages)
+        if t.startswith("published:")
+    )
+    assert f"verdict={expected_verdict}" in text
+    assert f"status={expected_status}" in text
+    formal = [data for name, data in fake.writes if name == "submit_review_verdict"]
+    assert bool(formal) is (expected_verdict == "approve")
 
 
 def test_publish_review_forces_the_running_agent_identity() -> None:

@@ -5,8 +5,10 @@ from typing import Any
 
 import pytest
 
+import code_squad._common.services as services_module
 from code_squad._common.common_tools import finish
 from code_squad._common.config.loader import ConfigSources
+from code_squad._common.config.schema import ImplementerConfig
 from code_squad._common.contract import (
     Confidence,
     InvocationRequest,
@@ -17,6 +19,8 @@ from code_squad._common.fake_model import ScriptedModel, ToolCall, Turn
 from code_squad._common.registry import get_spec
 from code_squad._common.review_tools import publish_review
 from code_squad._common.runtime import run_task
+from code_squad._common.sandbox.env import GitIdentity as SandboxGitIdentity
+from code_squad._common.secrets.base import SecretNotFoundError
 from code_squad._common.services import (
     DISABLED_WARNING,
     FORCE_DRY_RUN_WARNING,
@@ -25,12 +29,15 @@ from code_squad._common.services import (
     _change_request_ref,
     disabled_result,
     plan_run,
+    runner_for,
 )
 from code_squad._common.spec import AgentSpec
 from code_squad._common.tool_policy import tool_name
 from code_squad._common.vcs.base import ChangeRequestRef
 from code_squad._common.vcs.conformance import scenario as s
 from code_squad._common.vcs.fake import FakeVcsProvider
+from code_squad._common.vcs.issues.vcs_tracker import VcsIssueTracker
+from code_squad.pam.runner import run_pam
 from tests.support import factory_of, finding_dict, finish_turn, make_spec, request
 
 ORG_ENV = {"VCS_PROVIDER": "github", "VCS_BASE_URL": "https://api.github.com"}
@@ -401,4 +408,118 @@ def test_default_ignore_globs_cover_a_root_level_lockfile(tmp_path: Path) -> Non
     report = anchor_findings(
         [finding], [lock], s.HEAD, ignore_globs=options.ignore_globs
     )
-    assert report.dropped and "ignore_globs" in report.dropped[0][1]
+    assert not report.dropped
+    assert report.general and report.general[0][1] == "file matches review.ignore_globs"
+
+
+_SANDBOX = "sandbox"
+
+
+@pytest.fixture
+def built_sandboxes(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    def fake_build(kind: str, **kwargs: Any) -> object:
+        calls.append({"kind": kind, **kwargs})
+        return _SANDBOX
+
+    monkeypatch.setattr(services_module, "build_sandbox", fake_build)
+    return calls
+
+
+def test_pam_services_expose_implementer_config_sandbox_and_tracker(
+    tmp_path: Path,
+) -> None:
+    services = _builder(tmp_path).build(_cr_request(), "pam")
+    assert callable(services["sandbox_factory"])
+    assert isinstance(services["implementer_config"], ImplementerConfig)
+    assert isinstance(services["issue_tracker"], VcsIssueTracker)
+
+
+def test_pam_sandbox_factory_defaults_to_the_local_backend(
+    tmp_path: Path, built_sandboxes: list[dict[str, Any]]
+) -> None:
+    services = _builder(tmp_path).build(_cr_request(), "pam")
+    assert services["sandbox_factory"]() == _SANDBOX
+    call = built_sandboxes[-1]
+    assert call["kind"] == "local"
+    assert call["allowed_extra"] == ()
+    assert call["git_identity"] == SandboxGitIdentity(
+        name="pam (code-squad)", email="pam@code-squad.invalid"
+    )
+
+
+def test_pam_sandbox_factory_uses_kubernetes_when_a_namespace_is_set(
+    tmp_path: Path, built_sandboxes: list[dict[str, Any]]
+) -> None:
+    env = {**ORG_ENV, "SANDBOX_NAMESPACE": "pam-sandboxes"}
+    services = _builder(tmp_path, env=env).build(_cr_request(), "pam")
+    services["sandbox_factory"]()
+    call = built_sandboxes[-1]
+    assert call["kind"] == "kubernetes"
+    assert call["environ"]["SANDBOX_NAMESPACE"] == "pam-sandboxes"
+
+
+def test_pam_sandbox_receives_the_org_extra_executables(
+    tmp_path: Path, built_sandboxes: list[dict[str, Any]]
+) -> None:
+    org = "implementer:\n  extra_executables:\n    - make\n"
+    services = _builder(tmp_path, org).build(_cr_request(), "pam")
+    services["sandbox_factory"]()
+    assert built_sandboxes[-1]["allowed_extra"] == ("make",)
+
+
+def test_pam_without_a_project_still_gets_a_sandbox_factory(
+    tmp_path: Path, built_sandboxes: list[dict[str, Any]]
+) -> None:
+    services = _builder(tmp_path).build(request(), "pam")
+    assert "issue_tracker" not in services
+    assert callable(services["sandbox_factory"])
+
+
+class _VcsTokenOnly:
+    def get(self, name: str) -> str:
+        if name == "vcs-token":
+            return "fake-token-for-tests"
+        raise SecretNotFoundError(name)
+
+
+def test_jira_tracker_needs_both_secrets_and_otherwise_falls_back_to_vcs(
+    tmp_path: Path,
+) -> None:
+    env = {**ORG_ENV, "JIRA_BASE_URL": "https://jira.example.test"}
+    builder = ServiceBuilder(
+        provider_factory=lambda _settings: _fake(),
+        secret_provider=_VcsTokenOnly(),
+        config_sources=_sources(tmp_path, None),
+        env=env,
+    )
+    services = builder.build(_cr_request(), "pam")
+    assert isinstance(services["issue_tracker"], VcsIssueTracker)
+    assert any(
+        "jira issue tracker unavailable" in w for w in services["config_warnings"]
+    )
+
+
+def test_runner_for_routes_pam_to_run_pam_and_others_to_run_task() -> None:
+    assert runner_for("pam") is run_pam
+    assert runner_for("jim") is run_task
+
+
+def test_darryl_services_merge_the_configured_ops_backends(tmp_path: Path) -> None:
+    org = "ops:\n  prometheus_url: https://prometheus.example.test\n"
+    services = _builder(tmp_path, org).build(request(), "darryl")
+    assert "metrics" in services
+    assert "ops_config" in services
+    assert services["config_warnings"] == []
+
+
+def test_darryl_backend_warnings_are_appended_to_config_warnings(
+    tmp_path: Path,
+) -> None:
+    env = {**ORG_ENV, "KUBERNETES_SERVICE_HOST": "10.0.0.1"}
+    services = _builder(tmp_path, env=env).build(request(), "darryl")
+    assert "cluster" not in services
+    assert any(
+        w.startswith("cluster access disabled") for w in services["config_warnings"]
+    )

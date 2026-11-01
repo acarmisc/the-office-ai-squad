@@ -13,8 +13,15 @@ from datetime import date
 from typing import Any, Final
 
 from code_squad._common.config.schema import SecurityConfig
+from code_squad._common.context import current
+from code_squad._common.findings import VerdictCap
 from code_squad._common.secrets.base import SecretProvider
-from code_squad.dwight.guard import accepted_risk_guard, offline_verdict_guard
+from code_squad.dwight.guard import (
+    UNVERIFIED,
+    accepted_risk_guard,
+    offline_verdict_guard,
+    unverified,
+)
 from code_squad.dwight.intel.cache import TtlCache
 from code_squad.dwight.intel.epss import EpssClient
 from code_squad.dwight.intel.ghsa import GhsaClient
@@ -52,7 +59,16 @@ def security_services(
         "offline_mode": cfg.offline_mode,
         "accepted_risks": tuple(r for r in cfg.accepted_risks if r.expires >= cutoff),
         "result_guards": [accepted_risk_guard, offline_verdict_guard],
+        "publish_verdict_cap": publish_verdict_cap,
     }
+
+
+def publish_verdict_cap() -> tuple[VerdictCap, str] | None:
+    """Withhold approve at publish time when the offline guard would withhold it."""
+    ctx = current()
+    if not unverified(ctx.services, ctx.tool_calls):
+        return None
+    return "comment", UNVERIFIED
 
 
 def build_intel_service(
