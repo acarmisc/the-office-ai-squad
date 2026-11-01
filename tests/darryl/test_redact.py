@@ -53,7 +53,9 @@ def test_each_pattern_masks_its_secret(
 
 def test_pem_private_key_block_is_removed_whole() -> None:
     block = (
-        "before\n-----BEGIN RSA PRIVATE KEY-----\nMIIFAKEKEYBODY\n"
+        "before\n"
+        "-----BEGIN RSA PRIVATE KEY-----\n"  # secret-scan: allow
+        "MIIFAKEKEYBODY\n"
         "-----END RSA PRIVATE KEY-----\nafter"
     )
     out = redact(block)
@@ -62,7 +64,7 @@ def test_pem_private_key_block_is_removed_whole() -> None:
 
 
 def test_unterminated_pem_block_is_removed_to_end() -> None:
-    out = redact("-----BEGIN PRIVATE KEY-----\nMIIFAKE")
+    out = redact("-----BEGIN PRIVATE KEY-----\nMIIFAKE")  # secret-scan: allow
     assert "MIIFAKE" not in out
 
 

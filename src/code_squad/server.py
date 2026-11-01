@@ -40,11 +40,11 @@ from code_squad._common.registry import (
     get_spec,
     register_extra_agents,
 )
-from code_squad._common.runtime import run_task
 from code_squad._common.services import (
     ServiceBuilder,
     disabled_result,
     plan_run,
+    runner_for,
     sources_from_env,
 )
 from code_squad._common.session import (
@@ -237,7 +237,8 @@ def _run_agent(
     factory: ModelFactory,
     post_override: bool | None,
 ) -> InvocationResult:
-    return run_task(
+    runner = runner_for(spec.name)
+    return runner(
         spec,
         req,
         services=services,
