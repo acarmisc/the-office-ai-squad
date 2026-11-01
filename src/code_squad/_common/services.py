@@ -64,6 +64,7 @@ from code_squad._common.vcs.base import (
     VcsProvider,
 )
 from code_squad._common.vcs.factory import VcsSettings, build_provider
+from code_squad.dwight.services import INTEL_AGENTS, security_services
 
 ProviderFactory = Callable[[VcsSettings], VcsProvider]
 
@@ -182,6 +183,13 @@ class ServiceBuilder:
 
     def build(self, request: InvocationRequest, agent: str) -> dict[str, Any]:
         env = dict(os.environ) if self._env is None else dict(self._env)
+        services = self._build(request, agent, env)
+        services.update(self._security(agent, services, env))
+        return services
+
+    def _build(
+        self, request: InvocationRequest, agent: str, env: dict[str, str]
+    ) -> dict[str, Any]:
         sources = self._sources or sources_from_env(env)
         services: dict[str, Any] = {_CONFIG_WARNINGS: []}
         warnings: list[str] = services[_CONFIG_WARNINGS]
@@ -237,6 +245,17 @@ class ServiceBuilder:
         if view is not None:
             services["repo_files"] = view
         return services
+
+    def _security(
+        self, agent: str, services: dict[str, Any], env: dict[str, str]
+    ) -> dict[str, Any]:
+        if agent not in INTEL_AGENTS:
+            return {}
+        effective = services.get("config")
+        if not isinstance(effective, EffectiveConfig):
+            return security_services(agent, None, self._secrets, env=env)
+        secrets = self._secrets or _optional_secrets(effective, env)
+        return security_services(agent, effective.config.security, secrets, env=env)
 
     def _provider(
         self,
@@ -308,6 +327,15 @@ class ServiceBuilder:
         except (ValueError, VcsError, OSError) as exc:
             warnings.append(f"skills unavailable for this run: {type(exc).__name__}")
             return load_skills(payload=payload, reader=None, ref="", agent=agent)
+
+
+def _optional_secrets(
+    effective: EffectiveConfig, env: Mapping[str, str]
+) -> SecretProvider | None:
+    try:
+        return build_secret_provider(effective.config.secrets, env)
+    except (ConfigError, ValueError, OSError):
+        return None
 
 
 def plan_run(spec: AgentSpec, services: dict[str, Any]) -> RunPlan:

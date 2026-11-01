@@ -1,0 +1,120 @@
+"""Builds dwight's per-invocation security services.
+
+Building is lazy: no request leaves the process here. An optional secret that is missing
+or unreadable leaves that source running without the key. The egress proxy is read from
+``EGRESS_PROXY_URL`` by the HTTP layer.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Mapping
+from datetime import date
+from typing import Any, Final
+
+from code_squad._common.config.schema import SecurityConfig
+from code_squad._common.secrets.base import SecretProvider
+from code_squad.dwight.guard import accepted_risk_guard, offline_verdict_guard
+from code_squad.dwight.intel.cache import TtlCache
+from code_squad.dwight.intel.epss import EpssClient
+from code_squad.dwight.intel.ghsa import GhsaClient
+from code_squad.dwight.intel.http import IntelHttp
+from code_squad.dwight.intel.kev import KevCatalog
+from code_squad.dwight.intel.nvd import NvdClient
+from code_squad.dwight.intel.osv import OsvClient
+from code_squad.dwight.intel.service import IntelService
+from code_squad.dwight.intel.triage import SeverityThresholds
+
+INTEL_AGENTS: Final = frozenset({"dwight"})
+NVD_KEY_SECRET: Final = "nvd-api-key"
+GHSA_TOKEN_SECRET: Final = "ghsa-token"
+PROXY_ENV: Final = "EGRESS_PROXY_URL"
+NVD_HOST: Final = "services.nvd.nist.gov"
+NVD_INTERVAL_NO_KEY: Final = 6.0
+NVD_INTERVAL_WITH_KEY: Final = 0.6
+
+
+def security_services(
+    agent: str,
+    security: SecurityConfig | None,
+    secrets: SecretProvider | None,
+    *,
+    env: Mapping[str, str] | None = None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    if agent not in INTEL_AGENTS:
+        return {}
+    cfg = security or SecurityConfig()
+    cutoff = today or date.today()
+    return {
+        "intel": build_intel_service(cfg, secrets, env=env),
+        "severity_thresholds": _thresholds(cfg),
+        "offline_mode": cfg.offline_mode,
+        "accepted_risks": tuple(r for r in cfg.accepted_risks if r.expires >= cutoff),
+        "result_guards": [accepted_risk_guard, offline_verdict_guard],
+    }
+
+
+def build_intel_service(
+    security: SecurityConfig | None,
+    secrets: SecretProvider | None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> IntelService:
+    cfg = security or SecurityConfig()
+    environ: Mapping[str, str] = os.environ if env is None else env
+    ttl = float(cfg.cache_ttl_seconds)
+    nvd_key = _secret(secrets, NVD_KEY_SECRET)
+    interval = NVD_INTERVAL_WITH_KEY if nvd_key else NVD_INTERVAL_NO_KEY
+    http = IntelHttp(
+        allowed_hosts=frozenset(cfg.allowed_hosts),
+        proxy_url=environ.get(PROXY_ENV) or None,
+        min_intervals={NVD_HOST: interval},
+    )
+    return IntelService(
+        osv=OsvClient(
+            http,
+            query_cache=TtlCache(ttl_seconds=ttl),
+            vuln_cache=TtlCache(ttl_seconds=ttl),
+        ),
+        ghsa=GhsaClient(
+            http,
+            token=_secret(secrets, GHSA_TOKEN_SECRET),
+            cache=TtlCache(ttl_seconds=ttl),
+        ),
+        nvd=NvdClient(http, api_key=nvd_key, cache=TtlCache(ttl_seconds=ttl)),
+        kev=KevCatalog(http, refresh_seconds=ttl),
+        epss=EpssClient(http, cache=TtlCache(ttl_seconds=ttl)),
+        sources_enabled=_sources(cfg),
+        thresholds=_thresholds(cfg),
+    )
+
+
+def _secret(secrets: SecretProvider | None, name: str) -> str | None:
+    if secrets is None:
+        return None
+    try:
+        return secrets.get(name) or None
+    except (KeyError, ValueError, OSError):
+        return None
+
+
+def _sources(cfg: SecurityConfig) -> dict[str, bool]:
+    sources = cfg.sources
+    return {
+        "osv": sources.osv,
+        "ghsa": sources.ghsa,
+        "nvd": sources.nvd,
+        "kev": sources.kev,
+        "epss": sources.epss,
+    }
+
+
+def _thresholds(cfg: SecurityConfig) -> SeverityThresholds:
+    mapping = cfg.severity_mapping
+    return SeverityThresholds(
+        kev_is_blocker=mapping.kev_is_blocker,
+        epss_major=mapping.epss_major,
+        cvss_blocker=mapping.cvss_blocker,
+        cvss_major=mapping.cvss_major,
+    )

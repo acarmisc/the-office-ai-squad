@@ -116,7 +116,16 @@ def _run(
         )
         retry_model = factory(retry_id, spec.max_tokens, spec.temperature, tags)
         stop = _attempt(spec, ctx, retry_model, f"{prompt}\n\n{instruction}")
-    return _finalize(spec, ctx, stop)
+    return _guarded(ctx, _finalize(spec, ctx, stop))
+
+
+def _guarded(ctx: InvocationContext, result: InvocationResult) -> InvocationResult:
+    guards = ctx.services.get("result_guards")
+    if not isinstance(guards, list):
+        return result
+    for guard in guards:
+        result = guard(result, ctx.services)
+    return result
 
 
 def _services_with_skills(
