@@ -2,7 +2,7 @@
 
 Resume cold from here. The full brief is in `docs/BRIEF.md`; ADRs in `docs/decisions/`.
 
-Current milestone: **M5–M8 — agents (jim, angela, dwight, darryl) and sandbox + pam**
+Current milestone: **M10–M11 — packaging, docs, final validation**
 
 | # | Milestone | State |
 |---|---|---|
@@ -14,8 +14,8 @@ Current milestone: **M5–M8 — agents (jim, angela, dwight, darryl) and sandbo
 | M5 | jim + angela | done |
 | M6 | dwight | done |
 | M7 | darryl | done |
-| M8 | Sandbox + pam | done (service wiring pending) |
-| M9 | Orchestrator (michael) | todo |
+| M8 | Sandbox + pam | done |
+| M9 | Orchestrator (michael) | done |
 | M10 | Packaging & K8s | todo |
 | M11 | Observability, docs, examples, eval | todo |
 
