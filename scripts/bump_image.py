@@ -1,8 +1,11 @@
 """Bump the chart version, appVersion and image tag in place.
 
-``--version`` sets ``version`` and ``appVersion`` in Chart.yaml. ``--tag`` sets
-``image.tag`` in values.yaml. Edits are line based, so the comments and layout of both
-files survive. ``--dry-run`` prints a unified diff and writes nothing.
+``--version`` sets ``version`` and ``appVersion`` in Chart.yaml, the sandbox image tag
+in values.yaml, ``project.version`` in pyproject.toml and ``__version__`` in the
+package, so a release tag ``vX.Y.Z`` matches every place the release workflow checks.
+``--tag`` sets ``image.tag`` in values.yaml (leave it unset to follow appVersion).
+Edits are line based, so comments and layout survive. ``--dry-run`` prints a
+unified diff and writes nothing.
 """
 
 from __future__ import annotations
@@ -22,6 +25,12 @@ _VERSION_PATTERN: Final = re.compile(
     r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
 )
 _TOP_LEVEL_KEY: Final = re.compile(r"^[A-Za-z_][\w-]*:")
+_SANDBOX_IMAGE: Final = re.compile(
+    r"^(?P<prefix>\s+image:\s*\S*code-squad-sandbox-node:)(?P<tag>\S+)\s*$",
+    re.MULTILINE,
+)
+_PYPROJECT_VERSION: Final = re.compile(r'^version = "[^"]*"$', re.MULTILINE)
+_PACKAGE_VERSION: Final = re.compile(r'^__version__ = "[^"]*"$', re.MULTILINE)
 
 
 class BumpError(ValueError):
@@ -75,22 +84,75 @@ def _replace_image_tag(text: str, tag: str, path: Path) -> str:
     raise BumpError(f"{path.name}: image.tag not found in the image block")
 
 
-def plan(chart_dir: Path, tag: str | None, version: str | None) -> list[Change]:
+def _sub_once(pattern: re.Pattern[str], text: str, repl: str, path: Path) -> str:
+    if not pattern.search(text):
+        raise BumpError(f"{path.name}: expected version line not found")
+    return pattern.sub(lambda _m: repl, text, count=1)
+
+
+def _replace_sandbox_tag(text: str, version: str, path: Path) -> str:
+    if not _SANDBOX_IMAGE.search(text):
+        raise BumpError(f"{path.name}: sandbox image line not found")
+    return _SANDBOX_IMAGE.sub(
+        lambda match: f"{match.group('prefix')}{version}", text, count=1
+    )
+
+
+def _version_changes(chart_dir: Path, root: Path, version: str) -> list[Change]:
+    chart = chart_dir / "Chart.yaml"
+    before = chart.read_text(encoding="utf-8")
+    after = _replace_top_level(before, "version", version, chart)
+    after = _replace_top_level(after, "appVersion", version, chart)
+    changes = [Change(chart, before, after)]
+    values = chart_dir / "values.yaml"
+    before = values.read_text(encoding="utf-8")
+    changes.append(
+        Change(values, before, _replace_sandbox_tag(before, version, values))
+    )
+    pyproject = root / "pyproject.toml"
+    if pyproject.is_file():
+        before = pyproject.read_text(encoding="utf-8")
+        repl = f'version = "{version}"'
+        changes.append(
+            Change(
+                pyproject,
+                before,
+                _sub_once(_PYPROJECT_VERSION, before, repl, pyproject),
+            )
+        )
+    package = root / "src" / "code_squad" / "__init__.py"
+    if package.is_file():
+        before = package.read_text(encoding="utf-8")
+        repl = f'__version__ = "{version}"'
+        changes.append(
+            Change(package, before, _sub_once(_PACKAGE_VERSION, before, repl, package))
+        )
+    return changes
+
+
+def plan(
+    chart_dir: Path,
+    tag: str | None,
+    version: str | None,
+    root: Path | None = None,
+) -> list[Change]:
     if tag is None and version is None:
         raise BumpError("pass --tag, --version or both")
     changes: list[Change] = []
     if version is not None:
         validate_version(version)
-        chart = chart_dir / "Chart.yaml"
-        before = chart.read_text(encoding="utf-8")
-        after = _replace_top_level(before, "version", version, chart)
-        after = _replace_top_level(after, "appVersion", version, chart)
-        changes.append(Change(chart, before, after))
+        base = root if root is not None else chart_dir
+        changes.extend(_version_changes(chart_dir, base, version))
     if tag is not None:
         validate_tag(tag)
         values = chart_dir / "values.yaml"
-        before = values.read_text(encoding="utf-8")
-        changes.append(Change(values, before, _replace_image_tag(before, tag, values)))
+        current = next((c for c in changes if c.path == values), None)
+        before = current.after if current else values.read_text(encoding="utf-8")
+        after = _replace_image_tag(before, tag, values)
+        if current:
+            changes[changes.index(current)] = Change(values, current.before, after)
+        else:
+            changes.append(Change(values, before, after))
     return changes
 
 
@@ -117,7 +179,8 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        changes = plan(args.chart_dir, args.tag, args.version)
+        root = ROOT if args.chart_dir == CHART_DIR else None
+        changes = plan(args.chart_dir, args.tag, args.version, root)
     except (BumpError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

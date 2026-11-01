@@ -8,9 +8,11 @@
 
 # Container image shared by all agents. AGENT_NAME selects the role at runtime.
 image:
-  # REQUIRED. Repository of the image built from deploy/Dockerfile.
-  repository: ghcr.io/example/code-squad
-  # Image tag. An empty string means Chart.appVersion.
+  # Repository of the image built from deploy/Dockerfile. The default is the image that
+  # .github/workflows/release.yml publishes for each release tag. Override it for a mirror or
+  # a private registry (docs/deployment/images-and-releases.md).
+  repository: ghcr.io/acarmisc/code-squad
+  # Image tag. An empty string means Chart.appVersion, which is the release version.
   tag: ""
   # imagePullPolicy: IfNotPresent, Always or Never (use Never with `kind load`).
   pullPolicy: IfNotPresent
@@ -339,8 +341,9 @@ sandbox:
   # Namespace where pam creates sandbox pods. Create it ahead of time with the restricted
   # Pod Security Standard label. The chart does not create it.
   namespace: code-squad-sandbox
-  # Sandbox image, built from deploy/sandbox-node.Dockerfile.
-  image: ghcr.io/example/code-squad-sandbox-node:0.1.0
+  # Sandbox image, built from deploy/sandbox-node.Dockerfile and published by
+  # .github/workflows/release.yml. Its tag is set by hand when the sandbox image changes.
+  image: ghcr.io/acarmisc/code-squad-sandbox-node:0.1.0
   # CIDRs that sandbox pods may reach (git host, package registry or proxy). Empty means DNS only.
   allowedEgressCIDRs: []
   # Ports used for allowedEgressCIDRs.

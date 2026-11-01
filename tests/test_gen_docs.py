@@ -105,7 +105,8 @@ def test_bump_image_updates_version_appversion_and_tag(tmp_path: Path) -> None:
     assert 'appVersion: "1.2.3"' in chart_text
     values_text = (chart / "values.yaml").read_text(encoding="utf-8")
     assert 'tag: "sha-abc1234"' in values_text
-    assert "# Image tag. An empty string means Chart.appVersion." in values_text
+    assert "# Image tag. An empty string means Chart.appVersion" in values_text
+    assert "code-squad-sandbox-node:1.2.3" in values_text
 
 
 def test_bump_image_dry_run_writes_nothing(
@@ -147,3 +148,18 @@ def test_bump_image_refuses_a_chart_without_the_expected_keys(tmp_path: Path) ->
     (chart / "values.yaml").write_text("image:\n  repository: r\n", encoding="utf-8")
     assert bump_image.main(["--version", "1.0.0", "--chart-dir", str(chart)]) == 2
     assert bump_image.main(["--tag", "v1", "--chart-dir", str(chart)]) == 2
+
+
+def test_bump_image_version_updates_pyproject_and_package(tmp_path: Path) -> None:
+    chart = _chart(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "code-squad"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    package = tmp_path / "src" / "code_squad"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text('__version__ = "0.1.0"\n', encoding="utf-8")
+    changes = bump_image.plan(chart, None, "0.3.0", root=tmp_path)
+    for change in changes:
+        change.path.write_text(change.after, encoding="utf-8")
+    assert 'version = "0.3.0"' in (tmp_path / "pyproject.toml").read_text("utf-8")
+    assert '__version__ = "0.3.0"' in (package / "__init__.py").read_text("utf-8")
