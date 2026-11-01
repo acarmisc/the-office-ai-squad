@@ -3,9 +3,11 @@
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [semantic versioning](https://semver.org/) for the application and the chart.
 
-## Unreleased — documentation and contributor kit
+## [0.1.0] - 2026-11-01
 
-### Added
+### Documentation, contributor kit and release workflow
+
+#### Added
 
 - **Getting started.** Local demo (no containers, or Docker Compose), a 15-minute Kubernetes deployment guide that installs the
   released chart with a validated minimal values file, and a symptom-to-fix troubleshooting table.
@@ -17,18 +19,18 @@ and the project uses [semantic versioning](https://semver.org/) for the applicat
 - **Demos.** `scripts/record_demos.py` runs the project's own commands and writes asciinema v2 casts and self-contained animated SVG
   terminals under `docs/assets/`. `just demos` re-records them. `scripts/demo_review.py` runs one offline dry-run review.
 
-### Changed
+#### Changed
 
 - The README has badges, the agent table, an embedded demo and quick-start and deploy snippets.
 - The Helm example in the deployment page sets `api.tokenSecret`, so the install does not fail closed.
 - The reporting process in the hardening page points to `SECURITY.md`.
 
-## Unreleased — operational readiness
+### Operational readiness (ADR 0013)
 
 Decision record: [ADR 0013](docs/decisions/0013-operational-readiness.md). Fixes from the adversarial review, applied before the
 first operational test.
 
-### Fixed
+#### Fixed
 
 - **Publication.** One pipeline for every agent, including michael. The verdict is computed over every schema-valid finding.
   Binary files are listed as not reviewed without capping the verdict; truncated text files still cap it at `comment`. A
@@ -54,7 +56,7 @@ first operational test.
 - **Chart.** `api.allowUnauthenticated` (default `false`) renders `SQUAD_ALLOW_UNAUTHENTICATED=1` only when true. More than one
   michael replica is refused while `sessionStore.url` is unset.
 
-### Removed
+#### Removed
 
 - Configuration keys with no run-time effect: `review.summary_template`, `review.chunking`, `review.suppressions_enabled`,
   `review.baseline_file`, `review.verdict.request_changes_on_blocker`, `agents.*.disabled_rules`, `severity_overrides`, `language`,
@@ -64,7 +66,7 @@ first operational test.
 - `config/reload.py`, the operation journal, `safe_retry.py` and the baseline loader.
 - Helm: the `vcs.status_mode` value in the example files.
 
-### Added
+#### Added
 
 - `docs/operations/first-operational-test.md`: the procedure, acceptance criteria and results table for one real project.
 - `deploy/helm/code-squad/values-examples/operational-test.yaml`: dry-run values for michael, jim, angela, dwight and darryl.
@@ -72,11 +74,11 @@ first operational test.
 - Environment variables in the bootstrap table: `SQUAD_ALLOW_UNAUTHENTICATED`, `SQUAD_MAX_REQUEST_BYTES`, `SQUAD_MAX_WEBHOOK_BYTES`,
   `ALLOW_LOCAL_SANDBOX` and `SQUAD_DOCS_URL`.
 
-## [0.1.0] - unreleased
+### Initial implementation (milestones M0–M11)
 
 First complete version, built milestone by milestone (see `STATUS.md`).
 
-### Added
+#### Added
 
 - **Platform (M0 to M4).** Agent specification and registry, contract models with `extra="forbid"`, fail-closed validation, tool
   policy with classes, posting gate, untrusted-content wrapping, runtime with one retry, `finish` validation and iteration limits,
@@ -99,7 +101,7 @@ First complete version, built milestone by milestone (see `STATUS.md`).
 - **Documentation and examples (M11).** The documentation set with generated reference pages and validated examples, GitLab and GitHub
   examples, the Backstage catalogue, the image bump script, and the evaluation harness with replay cases.
 
-### Notes
+#### Notes
 
 - Known limitations are listed in `docs/HANDOFF.md`. Two of them need attention before production: `/invocations` is open unless
   `SQUAD_API_TOKEN` is set, and the sandbox falls back to a local process when no sandbox namespace is set.
