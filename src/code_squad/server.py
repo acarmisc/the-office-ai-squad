@@ -11,7 +11,7 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Final
 
@@ -22,6 +22,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.concurrency import run_in_threadpool
 
 from code_squad import __version__
+from code_squad._common.auth import API_TOKEN_ENV, bearer_matches, load_api_token
 from code_squad._common.config.errors import ConfigError
 from code_squad._common.config.loader import ConfigSources, load_org
 from code_squad._common.config.schema import SquadConfig
@@ -99,10 +100,16 @@ def create_app(
     sources = wiring.config_sources if wiring is not None else None
     sources = sources if sources is not None else sources_from_env(env)
     loaded = _load(name, sources)
+    api_token = load_api_token(env)
+    if api_token is None:
+        logger.warning(
+            "%s is not set: /invocations and /jobs are not authenticated",
+            API_TOKEN_ENV,
+        )
     base_services: ServicesFactory = services_factory or ServiceBuilder().build
     build_services = _with_extra_knowledge(base_services)
     jobs = JobStore(session_store or _default_store())
-    client = _specialist_client(wiring) if name == _DEFAULT_AGENT else None
+    client = _specialist_client(wiring, env) if name == _DEFAULT_AGENT else None
     invoker: Invoker = make_invoker(client) if client is not None else _run_agent
     app = FastAPI(title="Code Squad", version=__version__)
 
@@ -129,6 +136,8 @@ def create_app(
         background: BackgroundTasks,
         prefer: Annotated[str | None, Header()] = None,
     ) -> JSONResponse:
+        if not _authorized(request, api_token):
+            return _unauthorized()
         if loaded.spec is None:
             return JSONResponse(
                 status_code=503, content={"detail": "agent is not loaded"}
@@ -168,7 +177,9 @@ def create_app(
         return JSONResponse(content=result.model_dump(mode="json"))
 
     @app.get("/jobs/{job_id}")
-    def get_job(job_id: str) -> JSONResponse:
+    def get_job(job_id: str, request: Request) -> JSONResponse:
+        if not _authorized(request, api_token):
+            return _unauthorized()
         entry = jobs.get(job_id)
         if entry is None:
             raise HTTPException(status_code=404, detail="unknown job")
@@ -222,12 +233,26 @@ def _with_extra_knowledge(base: ServicesFactory) -> ServicesFactory:
     return build
 
 
-def _specialist_client(wiring: MichaelWiring | None) -> SpecialistClient:
+def _authorized(request: Request, api_token: str | None) -> bool:
+    if api_token is None:
+        return True
+    return bearer_matches(request.headers.get("authorization"), api_token)
+
+
+def _unauthorized() -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "missing or invalid bearer token"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _specialist_client(
+    wiring: MichaelWiring | None, env: Mapping[str, str]
+) -> SpecialistClient:
     if wiring is not None and wiring.specialist_client is not None:
         return wiring.specialist_client
-    return HttpSpecialistClient(
-        httpx.Client(), breakers=CircuitBreakers(), env=dict(os.environ)
-    )
+    return HttpSpecialistClient(httpx.Client(), breakers=CircuitBreakers(), env=env)
 
 
 def _run_agent(

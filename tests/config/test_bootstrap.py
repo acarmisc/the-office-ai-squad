@@ -70,8 +70,23 @@ def test_rendered_example_has_one_assignment_per_variable() -> None:
         for line in render_env_example().splitlines()
         if re.match(r"^[A-Z_]+=", line)
     ]
-    assert len(lines) == len(BOOTSTRAP_ENV)
+    examples = [var for var in BOOTSTRAP_ENV if var.in_example]
+    assert len(lines) == len(examples)
     assert "SECRETS_DIR=/var/run/secrets/squad" in lines
+
+
+def test_patterns_and_platform_variables_stay_out_of_the_example() -> None:
+    example = render_env_example()
+    assert "SQUAD_SECRET_<NAME>" not in example
+    assert "KUBERNETES_SERVICE_HOST" not in example
+    assert "SQUAD_SECRET_<NAME>" in render_env_table()
+
+
+def test_api_token_has_no_default_and_is_an_empty_placeholder() -> None:
+    defaults = {var.name: var.default for var in BOOTSTRAP_ENV}
+    assert defaults["SQUAD_API_TOKEN"] is None
+    assert defaults["SQUAD_API_TOKEN_FILE"] is None
+    assert "\nSQUAD_API_TOKEN=\n" in "\n" + render_env_example()
 
 
 def test_nesting_note_documents_the_double_underscore_convention() -> None:

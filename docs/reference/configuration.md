@@ -267,7 +267,7 @@ or the project registry may set it). Concepts are explained in
 | `api_key_secret` | string or null | `"llm-api-key"` | free, secret name | pattern ^[a-z0-9][a-z0-9._-]{0,252}$ | Secret name holding the gateway key. |
 | `tag_template` | list of string | `["squad:code-squad", "project:{project}", "agent:{agent}"]` | free |  | LiteLLM tags sent with each call. {project} and {agent} are filled in. |
 | `budget_usd_per_day` | number or null | `null` | tighten_only, tighten le | &gt;= 0 | Daily spend cap per project. Lower layers may only lower it. |
-| `aliases` | map of string to string | `{}` | free |  | Model alias to gateway model name. |
+| `aliases` | map of string to string | `{}` | free |  | Reserved: model alias to gateway model name. Not applied in this version; model aliases are passed to the LiteLLM gateway unchanged. |
 
 ## `observability`
 

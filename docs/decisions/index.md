@@ -16,15 +16,8 @@ describes. For how to add one, see the [contributing guide](../contributing/inde
 | [0008](0008-per-invocation-services.md) | Per-invocation services, fail-closed configuration and knowledge lookup order | accepted | 2026-11-01 | Services built per request; an invalid organisation file turns writes off; knowledge read from the agent pack, then shared, then extra directories. |
 | [0009](0009-dwight-offline-mode.md) | dwight offline and restricted-egress behaviour and the verdict guard | accepted | 2026-11-01 | Missing advisory data is marked unverified; an approve is withheld on dependency changes; the rule is repeated at publication. |
 | [0010](0010-orchestrator-single-publication-path.md) | Single publication path through the orchestrator | accepted | 2026-11-01 | Specialists return findings; michael publishes one summary and one status; any incomplete specialist makes the verdict incomplete. |
-
-## Decisions the brief requires but that have no record yet
-
-The build brief (section 16, item 12) lists these decisions. The records do not exist in `docs/decisions/` yet.
-
-- **VCS abstraction.** The provider protocol, the capability flags and the fallback rules. The design is in the code and in the
-  [VCS pages](../vcs/adding-a-provider.md); the decision record is missing. TODO(architect): write the ADR.
-- **Agent naming.** The mapping of the six ids to roles, and the rule that prompts and outputs stay professional. The mapping is in
-  `_common/registry.py`; the decision record is missing. TODO(architect): write the ADR.
+| [0011](0011-vcs-abstraction.md) | VCS abstraction: protocol, capability flags, GitHub App first, no merge | accepted | 2026-11-01 | One `VcsProvider` protocol with capability flags and warned fallbacks; GitHub App preferred over a token; a conformance suite every provider passes; no merge operation. |
+| [0012](0012-agent-naming.md) | Agent naming: The Office ids, one mapping, functional role names | accepted | 2026-11-01 | Six lowercase ids from The Office; one mapping in `registry.py`; functional role names in docs and prompts; no persona humour. |
 
 ## How the ADRs relate
 
@@ -32,6 +25,7 @@ The build brief (section 16, item 12) lists these decisions. The records do not 
 - ADR 0004 and ADR 0003 together decide where review rules come from and who can change them.
 - ADR 0005, ADR 0006, ADR 0007 and ADR 0009 are the controls for the three agents with the most reach: pam, darryl and dwight.
 - ADR 0008 and ADR 0010 describe how a single request is served and published.
+- ADR 0011 defines the forge boundary that the publication and `pam` code rely on. ADR 0012 defines the ids used everywhere.
 
 ## Open points raised in the ADRs
 

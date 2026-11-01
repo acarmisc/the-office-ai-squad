@@ -53,17 +53,18 @@ differs. The examples are listed below.
 | --- | --- | --- |
 | `image` | Repository, tag and pull policy | An empty tag means `Chart.appVersion`. |
 | `imagePullSecrets` | Registry credentials | |
-| `agents.<id>` | Enable, replicas, resources, extra env, model alias | Keys are fixed: `michael`, `jim`, `angela`, `dwight`, `darryl`, `pam`. `env` appends environment variables to one agent. |
+| `agents.<id>` | Enable, replicas, resources, extra env, model name | Keys are fixed: `michael`, `jim`, `angela`, `dwight`, `darryl`, `pam`. `env` appends environment variables to one agent. |
 | `llm` | Gateway URL and the Secret key for the gateway key | `LLM_BASE_URL` and `LLM_API_KEY` are set from here. |
 | `vcs` | Default provider and base URL | `provider: auto` infers only for github.com and gitlab.com. Set `gitlab` or `github` for self-managed hosts. |
 | `secrets.existingSecret` | Name of the Secret mounted at `/var/run/secrets/squad` | Every agent mounts the whole Secret. |
+| `api.tokenSecret.name`, `api.tokenSecret.key` | Optional shared bearer token for `/invocations` and `/jobs/{id}` | Empty means no token check. Set on every agent as `SQUAD_API_TOKEN`; see [Authentication](#authentication). |
 | `config.org` | Organisation file content (`squad.yaml`) | Free-form YAML, rendered verbatim. |
 | `config.projects` | Project registry content (`projects.yaml`) | Free-form YAML, rendered verbatim. |
 | `config.restartOnChange` | Roll pods when config changes | Off: files are hot-reloaded. |
 | `otel.endpoint` | OTLP/HTTP collector | Empty disables trace export. |
 | `sessionStore.url` | Redis URL for asynchronous jobs | Empty means in-process state; see scaling. |
 | `egressProxy.url` | Outbound proxy | When set, add proxy CIDRs to `networkPolicy.egressProxyCIDRs`. |
-| `webhooks.gitlab.enabled`, `webhooks.github.enabled` | Which webhook paths the ingress exposes | Also needs `WEBHOOK_PROVIDERS` on michael; see below. |
+| `webhooks.gitlab.enabled`, `webhooks.github.enabled` | Which webhook paths the ingress exposes | Also sets `WEBHOOK_PROVIDERS` on michael, so the route is registered. |
 | `webhooks.secretName` | Optional separate Secret for the webhook secrets | Mounted on michael at `/var/run/secrets/squad-webhooks`. |
 | `ingress` | Ingress class, host, TLS, annotations | Routes only `/webhooks/gitlab` and `/webhooks/github`, to michael. |
 | `serviceMonitor` | Metrics scraping | Scrapes `/metrics` on each agent. |
@@ -74,19 +75,34 @@ differs. The examples are listed below.
 | `sandbox` | Sandbox namespace, image, resources, deadline and TTL | Enables the Kubernetes sandbox for pam. |
 | `podSecurityContext`, `containerSecurityContext` | Restricted Pod Security settings | Non-root, read-only root filesystem, no capabilities. |
 
-### Webhooks need one more variable
+### Webhooks
 
-The chart exposes the webhook paths through the ingress, but it does not set `WEBHOOK_PROVIDERS`. Without
-that variable, michael registers no webhook route and returns `404`. Set it under `agents.michael.env` as
-shown in the block below. This is a known gap; see the [handoff](../HANDOFF.md#known-limitations).
+`webhooks.gitlab.enabled` and `webhooks.github.enabled` do two things: the ingress exposes the matching path, and
+the chart sets `WEBHOOK_PROVIDERS` on michael to the same providers (`gitlab`, `github`, or `gitlab,github`). michael
+registers only the routes named there. With both flags false, `WEBHOOK_PROVIDERS` is empty and no webhook route exists.
+
+### Authentication
+
+Set `api.tokenSecret.name` to a Secret that holds the token under `api.tokenSecret.key` (default `api-token`). Every
+agent then receives `SQUAD_API_TOKEN` from that Secret. `POST /invocations` and `GET /jobs/{id}` require
+`Authorization: Bearer <token>`, and michael sends the same header to the specialists. `/ping`, `/ready`, `/metrics`
+and the webhook routes are not gated by the token; webhooks keep their own signature checks.
+
+```yaml
+api:
+  tokenSecret:
+    name: code-squad-api
+    key: api-token
+```
+
+With the token unset, each pod logs one warning at start-up and the endpoints are open. Network policy and the
+ingress are then the only protection. See [Hardening](../security/hardening.md#api-authentication).
 
 ### Keys to keep consistent
 
 - `devops.allowedNamespaces` and `ops.allowed_namespaces` (organisation file) must list the same namespaces.
-  The chart comment in `values.yaml` names the key `ops.namespaces`, which is not the schema key. Use
-  `ops.allowed_namespaces`.
-- `agents.<id>.model` sets `AGENT_MODEL_ID`. The `values.yaml` comment describes a model alias map under `llm`.
-  No alias map is applied in this version: the alias is sent to the gateway unchanged.
+  The schema key is `ops.allowed_namespaces`.
+- `agents.<id>.model` sets `AGENT_MODEL_ID`. The value is sent to the LLM gateway unchanged; no alias map is applied.
 - `sandbox.enabled` controls the Kubernetes sandbox. When it is false, pam uses the local process sandbox
   inside its own container. Keep it true outside a disposable test cluster; see [pam](../agents/pam.md).
 
@@ -109,9 +125,6 @@ secrets:
 agents:
   michael:
     replicas: 1
-    env:
-      - name: WEBHOOK_PROVIDERS
-        value: "gitlab,github"
 webhooks:
   gitlab:
     enabled: true

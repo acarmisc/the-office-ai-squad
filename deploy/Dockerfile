@@ -24,11 +24,12 @@ WORKDIR /app
 # Dependency layer first, so source edits do not invalidate it. The project itself
 # is not installed yet (README.md is needed by the hatchling build metadata).
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
+# The redis extra is included so that SESSION_STORE_URL=redis://... works without a rebuild.
+RUN uv sync --frozen --no-dev --extra redis --no-install-project
 
 # Project source, installed editable into the same venv (points at /app/src).
 COPY src/ ./src/
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra redis
 
 # ---------------------------------------------------------------------------
 # Runtime: no compilers, no uv, no source tree beyond what the app imports.

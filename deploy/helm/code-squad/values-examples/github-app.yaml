@@ -2,7 +2,7 @@
 #
 # GitHub with a GitHub App (preferred auth). The App private key and webhook secret are read
 # from files under SECRETS_DIR. Nothing secret is in this file.
-# Secret keys expected in code-squad-secrets: llm-api-key, github-app-id, github-app-private-key,
+# Secret keys expected in code-squad-secrets: llm-api-key, github-app-private-key,
 # github-webhook-secret, optional nvd-api-key. See deploy/secrets-examples/.
 
 image:
@@ -81,12 +81,11 @@ devops:
 
 config:
   org:
-    # GitHub App credentials. The private key and App id are read from SECRETS_DIR.
+    # GitHub App credentials. The App id is not secret; the private key is read from SECRETS_DIR.
     vcs:
       provider: github
       auth:
-        type: github_app
-        app_id_secret: github-app-id
+        app_id: 12345678
         installation_id: 12345678
         private_key_secret: github-app-private-key
       status_mode: check_run

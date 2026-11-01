@@ -78,8 +78,14 @@ devops:
 
 config:
   org:
-    # Security posture for an air-gapped run: no live intel sources, offline mode allowed.
+    # Security posture for an air-gapped run: every live intel source off; dwight
+    # reports dependency findings with low confidence and never approves them.
     security:
-      intel_sources: []
-      offline_fail_mode: unverified
+      sources:
+        osv: false
+        nvd: false
+        ghsa: false
+        kev: false
+        epss: false
+      offline_mode: low_confidence
   projects: {}

@@ -82,6 +82,21 @@ Format: jim=http://code-squad-jim.<ns>.svc:8080,angela=...
 {{- end -}}
 
 {{/*
+Comma-separated webhook providers for michael (WEBHOOK_PROVIDERS), from webhooks.*.enabled.
+Empty when neither provider is enabled, which registers no webhook route.
+*/}}
+{{- define "code-squad.webhookProviders" -}}
+{{- $providers := list -}}
+{{- if .Values.webhooks.gitlab.enabled -}}
+{{- $providers = append $providers "gitlab" -}}
+{{- end -}}
+{{- if .Values.webhooks.github.enabled -}}
+{{- $providers = append $providers "github" -}}
+{{- end -}}
+{{- join "," $providers -}}
+{{- end -}}
+
+{{/*
 Read-only devops rules shared by the namespaced Role and the ClusterRole.
 */}}
 {{- define "code-squad.devopsReadRules" -}}

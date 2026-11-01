@@ -83,12 +83,6 @@ def test_every_capability_has_a_documented_fallback() -> None:
         assert f"| `{capability.value}` |" in page
 
 
-def test_unlisted_variables_name_no_secret_value() -> None:
-    names = {name for name, _, _ in gen_docs._UNLISTED_VARIABLES}
-    assert "LLM_API_KEY" not in names
-    assert "VCS_TOKEN" not in names
-
-
 def _chart(tmp_path: Path) -> Path:
     source = ROOT / "deploy" / "helm" / "code-squad"
     target = tmp_path / "chart"

@@ -814,7 +814,9 @@ class LlmConfig(_Base):
         tighten="le",
     )
     aliases: dict[str, str] = _field(
-        "Model alias to gateway model name.", default_factory=dict
+        "Reserved: model alias to gateway model name. Not applied in this version; "
+        "model aliases are passed to the LiteLLM gateway unchanged.",
+        default_factory=dict,
     )
 
 

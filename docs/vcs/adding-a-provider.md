@@ -29,7 +29,7 @@ Rules that the suite and the platform depend on:
   capability; raise `CapabilityError` and let the caller record the fallback.
 - Inline comments are anchored to `head_sha`. If the head moved, raise `StaleHeadError` rather than post at the
   wrong line.
-- Pagination is followed with a cap. Timeouts and retries use the shared `HttpClient` (`_common/vcs/http.py`),
+- Pagination is followed with a cap. Timeouts and retries use the shared `HttpClient` (`_common/vcs/http.py`), created with `provider="<name>"` so that final failures are counted in `squad_vcs_errors_total`,
   which already handles `429`, `5xx`, `Retry-After` and back-off.
 - Credentials never appear in URLs, logs or exceptions. `git_credentials` returns a pair used only by the
   sandbox's askpass file.

@@ -16,18 +16,10 @@ Set the host, the class and TLS with `ingress.host`, `ingress.className` and `in
 
 ## Enable michael's webhook routes
 
-The chart exposes the paths, but michael registers a route only for providers named in `WEBHOOK_PROVIDERS`. The chart
-does not set that variable, so add it to michael's environment:
-
-```yaml
-agents:
-  michael:
-    env:
-      - name: WEBHOOK_PROVIDERS
-        value: "gitlab,github"
-```
-
-List only the providers you use. Without the variable, `POST /webhooks/gitlab` returns `404` from michael.
+The chart sets `WEBHOOK_PROVIDERS` on michael from `webhooks.gitlab.enabled` and `webhooks.github.enabled`, and
+michael registers a route only for the providers named there. Disable a provider by setting its flag to `false`;
+its path is then not exposed and its route is not registered. Without the variable, `POST /webhooks/gitlab` returns
+`404` from michael.
 
 ## Secrets for signature checks
 
@@ -69,18 +61,17 @@ For GitLab, send the token itself in `X-Gitlab-Token` over HTTPS.
 
 ## What the webhook does not protect
 
-The signature protects the webhook path only. Anyone who can reach `/invocations` on michael can start a review or,
-with `post: true`, make the squad publish. `/invocations` is not behind the ingress, so the protection is the network.
-Do not add a route for it to the ingress without an authentication layer in front of it. Options, in order of
-preference:
+The signature protects the webhook path only. `/invocations` is not behind the ingress. When `api.tokenSecret` is set,
+the squad requires the shared bearer token on `/invocations` and `/jobs/{id}`, but that token is not a substitute for
+keeping the path internal. Options, in order of preference:
 
-1. Keep it internal. Callers are CI jobs inside the cluster, which reach the Service directly.
-2. Put an authenticating proxy (for example one that validates a bearer token or a client certificate) in front of a
-   dedicated ingress host for `/invocations`. The squad itself does not check bearer tokens.
+1. Keep it internal. Callers are CI jobs inside the cluster, which reach the Service directly, with the bearer token.
+2. Put an authenticating proxy (for example one that validates a client certificate) in front of a dedicated ingress
+   host for `/invocations`.
 3. Use mTLS at the ingress controller and restrict the route to the client certificates you issue.
 
-The brief's non-goals name a shared bearer token or mTLS at the ingress as the expected model. Choose one of these
-before exposing the path.
+Do not add a route for `/invocations` to the ingress without one of these in front of it. See
+[Hardening](../security/hardening.md#api-authentication).
 
 ## Operational notes
 

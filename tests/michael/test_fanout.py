@@ -444,6 +444,20 @@ def test_url_map_ignores_malformed_and_non_http_entries() -> None:
     }
 
 
+def test_specialist_calls_send_the_bearer_token_when_configured() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=_body("jim"))
+
+    token_env = {"SQUAD_API_TOKEN": "fake-token-for-tests"}
+    _invoke(_client(handler, env=token_env))
+    _invoke(_client(handler, env={}), key="k2")
+    assert seen[0].headers["authorization"] == "Bearer fake-token-for-tests"
+    assert "authorization" not in seen[1].headers
+
+
 def test_namespace_defaults_to_pod_namespace_then_default() -> None:
     seen: list[str] = []
 

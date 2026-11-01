@@ -102,9 +102,18 @@ spec:
             - name: EGRESS_PROXY_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- with $root.Values.api.tokenSecret.name }}
+            - name: SQUAD_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $root.Values.api.tokenSecret.key | quote }}
+            {{- end }}
             {{- if eq $id "michael" }}
             - name: ORCHESTRATOR_SPECIALIST_URLS
               value: {{ include "code-squad.specialistUrls" $root | quote }}
+            - name: WEBHOOK_PROVIDERS
+              value: {{ include "code-squad.webhookProviders" $root | quote }}
             {{- if $root.Values.webhooks.secretName }}
             - name: WEBHOOK_SECRETS_DIR
               value: /var/run/secrets/squad-webhooks

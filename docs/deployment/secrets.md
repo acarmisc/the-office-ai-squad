@@ -19,6 +19,7 @@ ConfigMap without a validation error.
 | Name | Read by | Used for | Required |
 | --- | --- | --- | --- |
 | `llm-api-key` | Chart (`llm.apiKeySecret`), exposed as `LLM_API_KEY` | Gateway key for every model call | Yes |
+| Name in `api.tokenSecret.name`, key `api.tokenSecret.key` | Chart, exposed as `SQUAD_API_TOKEN` on every agent | Shared bearer token for `/invocations` and `/jobs/{id}` | No: without it the endpoints are open |
 | `vcs-token` | Bootstrap fallback (`VCS_TOKEN` or `VCS_TOKEN_FILE`) | Single-project VCS token, when no registry entry names a token | Only for the single-project fallback |
 | Any name in `vcs.auth.token_secret` | Registry or organisation file | Token for a project (GitLab token, or a GitHub token) | For each project using a token |
 | Any name in `vcs.auth.private_key_secret` | Registry or organisation file | GitHub App private key, PEM text | For each project using a GitHub App |
@@ -28,9 +29,8 @@ ConfigMap without a validation error.
 | `ghsa-token` | dwight | GitHub advisory queries | No |
 | `jira-api-token` | pam (task text) | Jira read access, with `JIRA_BASE_URL` | Only with Jira |
 
-The GitHub App **id** is not a secret. It is `vcs.auth.app_id` in configuration. The sample Secret in
-`deploy/secrets-examples/secret-plain.yaml` includes a `github-app-id` key that the squad does not read.
-Remove it from a real Secret, or keep it for your own tooling.
+The GitHub App **id** is not a secret. It is `vcs.auth.app_id` in configuration, so the sample Secrets in
+`deploy/secrets-examples/` do not carry it.
 
 ## Providers
 

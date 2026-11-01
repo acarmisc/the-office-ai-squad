@@ -24,8 +24,8 @@ called on its own; `michael` is the only component that publishes a review for a
 | `POST /invocations` | Direct call, with `mode` or a numeric `target` | Review, incident, implementation or question |
 | `squad review <target> --project <key>` | CLI alias of an invocation | Review |
 
-The webhook routes exist only when `WEBHOOK_PROVIDERS` names the provider. The Helm chart does not set
-it; see [Ingress and webhooks](../deployment/ingress-webhooks.md).
+The webhook routes exist only when `WEBHOOK_PROVIDERS` names the provider. The Helm chart sets it from
+`webhooks.gitlab.enabled` and `webhooks.github.enabled`; see [Ingress and webhooks](../deployment/ingress-webhooks.md).
 
 ## Intents
 

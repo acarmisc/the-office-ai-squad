@@ -25,7 +25,7 @@ vcs:
   baseUrl: ""
 
 secrets:
-  # Secret with gitlab-token, github-app-id, github-app-private-key, webhook secrets, llm-api-key.
+  # Secret with gitlab-token, github-app-private-key, webhook secrets, llm-api-key.
   existingSecret: code-squad-secrets
 
 webhooks:
@@ -80,21 +80,21 @@ devops:
 config:
   org: {}
   projects:
-    # GitLab project: self-managed host, token from the Secret.
-    payments-api:
-      provider: gitlab
-      base_url: https://gitlab.example.com
-      match: ["payments/api"]
-      extends: strict
-      vcs:
-        token_secret: gitlab-token
-    # GitHub project: App auth, balanced profile.
-    acme-web:
-      provider: github
-      match: ["acme/web-*"]
-      extends: balanced
-      vcs:
-        auth: github_app
-        app_id_secret: github-app-id
-        installation_id: 12345678
-        private_key_secret: github-app-private-key
+    projects:
+      # GitLab project: self-managed host, token from the Secret.
+      - match: payments/api
+        key: payments-api
+        provider: gitlab
+        base_url: https://gitlab.example.com
+        extends: strict
+        auth:
+          token_secret: gitlab-token
+      # GitHub projects: App auth, balanced profile.
+      - match: acme/web-*
+        key: acme-web
+        provider: github
+        extends: balanced
+        auth:
+          app_id: 12345678
+          installation_id: 12345678
+          private_key_secret: github-app-private-key

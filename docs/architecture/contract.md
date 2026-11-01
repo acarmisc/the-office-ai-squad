@@ -9,14 +9,16 @@ are checked with `extra="forbid"`, so an unknown key returns `422`. The JSON Sch
 | Method and path | Purpose | Responses |
 | --- | --- | --- |
 | `GET /ping` | Liveness. | `200 {"status": "ok"}` |
-| `GET /ready` | Readiness: the agent specification loaded. It does not call the model gateway. | `200 {"status": "ready", "agent": ...}`, or `503` with the load error type |
+| `GET /ready` | Readiness: the agent specification loaded. It does not call the model gateway, so a gateway outage does not make a pod unready. | `200 {"status": "ready", "agent": ...}`, or `503` with the load error type |
 | `GET /metrics` | Prometheus text format. | `200` |
-| `POST /invocations` | Run the agent. | `200` with the result; `202` with `job_id` when `Prefer: respond-async`; `400` for a body that is not JSON; `422` with `detail` for validation errors; `503` when the agent did not load |
-| `GET /jobs/{job_id}` | State of an asynchronous job: `running`, `done` (with `result`) or `failed`. | `200`; `404` for an unknown id |
+| `POST /invocations` | Run the agent. | `200` with the result; `202` with `job_id` when `Prefer: respond-async`; `400` for a body that is not JSON; `401` when `SQUAD_API_TOKEN` is set and the bearer token is missing or wrong; `422` with `detail` for validation errors; `503` when the agent did not load |
+| `GET /jobs/{job_id}` | State of an asynchronous job: `running`, `done` (with `result`) or `failed`. | `200`; `401` when the token is required and missing or wrong; `404` for an unknown id |
 | `POST /webhooks/gitlab`, `POST /webhooks/github` | Webhook receivers, `michael` only, enabled with `WEBHOOK_PROVIDERS`. | See [Review sequence](review-sequence.md). |
 
-`/invocations` does not authenticate callers. Restrict it by network, as described in
-[Network and egress](../deployment/network-and-egress.md) and [Hardening](../security/hardening.md).
+`/invocations` and `/jobs/{id}` accept an optional shared bearer token (`Authorization: Bearer <token>`, from `SQUAD_API_TOKEN` or
+`SQUAD_API_TOKEN_FILE`). `/ping`, `/ready`, `/metrics` and the webhook routes are not gated by it. With the token unset, the
+endpoints are open and each pod logs one warning. Restrict the endpoints by network as well, as described in
+[Network and egress](../deployment/network-and-egress.md) and [Hardening](../security/hardening.md#api-authentication).
 
 ## Request
 

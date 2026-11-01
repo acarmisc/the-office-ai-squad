@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from code_squad._common.fake_model import ScriptedModel
@@ -127,3 +129,103 @@ def test_respond_async_returns_202_and_job_completes() -> None:
 
 def test_unknown_job_is_404() -> None:
     assert _client().get("/jobs/does-not-exist").status_code == 404
+
+
+_TOKEN = "fake-token-for-tests"
+
+
+def _authed_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.setenv("SQUAD_API_TOKEN", _TOKEN)
+    return _client(_scripted_factory([]))
+
+
+def test_invocation_is_401_without_or_with_wrong_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _authed_client(monkeypatch)
+    assert client.post("/invocations", json={"prompt": "x"}).status_code == 401
+    wrong = {"Authorization": "Bearer fake-token-for-other"}
+    response = client.post("/invocations", json={"prompt": "x"}, headers=wrong)
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+def test_invocation_is_200_with_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _authed_client(monkeypatch)
+    headers = {"Authorization": f"Bearer {_TOKEN}"}
+    response = client.post("/invocations", json={"prompt": "x"}, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["status"] == "complete"
+
+
+def test_scheme_is_case_insensitive_and_other_schemes_are_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _authed_client(monkeypatch)
+    ok = client.post(
+        "/invocations",
+        json={"prompt": "x"},
+        headers={"Authorization": f"bearer {_TOKEN}"},
+    )
+    assert ok.status_code == 200
+    basic = client.post(
+        "/invocations",
+        json={"prompt": "x"},
+        headers={"Authorization": f"Basic {_TOKEN}"},
+    )
+    assert basic.status_code == 401
+
+
+def test_job_status_requires_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _authed_client(monkeypatch)
+    headers = {"Authorization": f"Bearer {_TOKEN}"}
+    accepted = client.post(
+        "/invocations",
+        json={"prompt": "review"},
+        headers={**headers, "Prefer": "respond-async"},
+    )
+    assert accepted.status_code == 202
+    job_id = accepted.json()["job_id"]
+    assert client.get(f"/jobs/{job_id}").status_code == 401
+    assert client.get(f"/jobs/{job_id}", headers=headers).status_code == 200
+
+
+def test_open_endpoints_stay_open_with_a_token_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEBHOOK_PROVIDERS", "github")
+    client = _authed_client(monkeypatch)
+    assert client.get("/ping").status_code == 200
+    assert client.get("/ready").status_code == 200
+    assert client.get("/metrics").status_code == 200
+    webhook = client.post("/webhooks/github", content=b"{}")
+    assert webhook.status_code == 401
+    assert webhook.json() == {"detail": "invalid webhook signature"}
+
+
+def test_unconfigured_token_keeps_endpoints_open_and_warns_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv("SQUAD_API_TOKEN", raising=False)
+    monkeypatch.delenv("SQUAD_API_TOKEN_FILE", raising=False)
+    with caplog.at_level("WARNING", logger="code_squad.server"):
+        client = _client(_scripted_factory([]))
+    warnings = [r for r in caplog.records if "SQUAD_API_TOKEN" in r.getMessage()]
+    assert len(warnings) == 1
+    assert client.post("/invocations", json={"prompt": "x"}).status_code == 200
+
+
+def test_token_file_is_read_at_start_up(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    token_file = tmp_path / "api-token"
+    token_file.write_text(f"{_TOKEN}\n", encoding="utf-8")
+    monkeypatch.delenv("SQUAD_API_TOKEN", raising=False)
+    monkeypatch.setenv("SQUAD_API_TOKEN_FILE", str(token_file))
+    client = _client(_scripted_factory([]))
+    assert client.post("/invocations", json={"prompt": "x"}).status_code == 401
+    headers = {"Authorization": f"Bearer {_TOKEN}"}
+    assert (
+        client.post("/invocations", json={"prompt": "x"}, headers=headers).status_code
+        == 200
+    )

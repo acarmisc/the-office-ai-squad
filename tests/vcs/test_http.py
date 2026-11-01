@@ -7,8 +7,9 @@ import httpx
 import pytest
 import respx
 
+from code_squad._common.observability import REGISTRY
 from code_squad._common.vcs.base import NotFoundError, RateLimitedError, VcsError
-from code_squad._common.vcs.http import HttpClient, tail_text
+from code_squad._common.vcs.http import HttpClient, operation_label, tail_text
 
 URL = "https://vcs.test/api/v4/user"
 
@@ -172,3 +173,66 @@ def test_tail_text_keeps_the_last_bytes_and_valid_utf8() -> None:
     assert tail_text(raw, 1000) == "héllo world\n"
     tail = tail_text(raw, 11)
     assert tail.endswith("\n")
+
+
+def _error_count(provider: str, operation: str) -> float:
+    value = REGISTRY.get_sample_value(
+        "squad_vcs_errors_total", {"provider": provider, "operation": operation}
+    )
+    return value or 0.0
+
+
+def test_final_500_after_retries_counts_one_error() -> None:
+    url = "https://api.github.com/repos/acme/web"
+    before = _error_count("github", "GET repos")
+    client = HttpClient(
+        sleep=lambda _s: None, rand=lambda: 0.0, provider="github", max_retries=2
+    )
+    with respx.mock(assert_all_mocked=True) as router:
+        route = router.get(url).mock(return_value=httpx.Response(500))
+        with pytest.raises(VcsError):
+            client.get_json(url)
+    assert route.call_count == 3
+    assert _error_count("github", "GET repos") == before + 1
+
+
+@pytest.mark.parametrize("status", [400, 403])
+def test_client_errors_count_as_vcs_errors(status: int) -> None:
+    url = "https://gitlab.test/api/v4/projects/7/merge_requests"
+    before = _error_count("gitlab", "GET projects")
+    client = HttpClient(sleep=lambda _s: None, provider="gitlab")
+    with respx.mock(assert_all_mocked=True) as router:
+        router.get(url).mock(return_value=httpx.Response(status, json={}))
+        with pytest.raises(VcsError):
+            client.get_json(url)
+    assert _error_count("gitlab", "GET projects") == before + 1
+
+
+def test_transport_failure_counts_and_not_found_does_not() -> None:
+    url = "https://api.github.com/repos/acme/missing"
+    before_missing = _error_count("github", "GET repos")
+    client = HttpClient(sleep=lambda _s: None, provider="github")
+    with respx.mock(assert_all_mocked=True) as router:
+        router.get(url).mock(return_value=httpx.Response(404, json={}))
+        with pytest.raises(NotFoundError):
+            client.get_json(url)
+        router.get(url).mock(side_effect=httpx.ConnectError("refused"))
+        with pytest.raises(httpx.ConnectError):
+            client.get_json(url)
+    assert _error_count("github", "GET repos") == before_missing + 1
+
+
+@pytest.mark.parametrize(
+    ("method", "url", "expected"),
+    [
+        ("get", "https://api.github.com/repos/a/b/pulls/1", "GET repos"),
+        ("POST", "https://gitlab.test/api/v4/projects/1/notes", "POST projects"),
+        ("GET", "https://ghe.test/api/v3/repos/a/b", "GET repos"),
+        ("GET", "https://host.test/", "GET other"),
+        ("GET", "https://host.test/Bad%20Segment", "GET other"),
+    ],
+)
+def test_operation_label_is_bounded_to_method_and_resource(
+    method: str, url: str, expected: str
+) -> None:
+    assert operation_label(method, url) == expected

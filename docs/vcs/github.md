@@ -78,8 +78,8 @@ On the App (or the repository), set:
 | SSL verification | enabled |
 | Events | as listed above |
 
-Enable the route on michael with `WEBHOOK_PROVIDERS=github`. The chart does not set it; see
-[Ingress and webhooks](../deployment/ingress-webhooks.md).
+The route is enabled by `webhooks.github.enabled` in the chart, which also sets `WEBHOOK_PROVIDERS=github` on
+michael. See [Ingress and webhooks](../deployment/ingress-webhooks.md).
 
 Deliveries are verified with `X-Hub-Signature-256`, an HMAC-SHA256 of the raw body with the secret, compared
 in constant time. A delivery id that already reached a final outcome returns `200` with `duplicate`; a delivery that failed

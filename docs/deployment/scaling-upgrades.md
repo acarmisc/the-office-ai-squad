@@ -25,8 +25,9 @@ Options, in order of preference:
 1. **One replica of michael** for webhook-driven reviews, with a PodDisruptionBudget only if you accept that it blocks drains. The
    chart default is one replica.
 2. **A shared session store.** `SESSION_STORE_URL` set to a Redis URL moves job state to Redis. The de-duplication and debounce still
-   live in memory, so this is not a complete fix. **Do not use it with the image as built:** the image does not install the `redis`
-   extra, so a Redis URL fails at start-up. This is a known defect; see [Hardening](../security/hardening.md#known-defects-that-affect-security).
+   live in memory, so this is not a complete fix. The image installs the `redis` extra (`uv sync --extra redis` in
+   `deploy/Dockerfile`), so a `redis://` or `rediss://` URL is accepted at start-up without a custom build. A custom image must
+   keep the extra too, or the Redis URL fails at start-up.
 3. **Session affinity** on the michael Service for the polling path. Affinity does not fix webhook de-duplication across replicas.
 
 Direct `POST /invocations` calls with `Prefer: respond-async` have the same limitation: poll the same replica, or use a single replica.
@@ -95,5 +96,5 @@ configuration of that revision. Check those two values in the revision you retur
 
 - [ ] Peak concurrent reviews, times the number of specialists per review, equals the gateway's concurrent request limit.
 - [ ] Each concurrent pam run has room for a sandbox pod (CPU and memory from `sandbox.resources`).
-- [ ] michael runs one replica, or the team has accepted the duplicate-run risk and tested the Redis path on an image built with the extra.
+- [ ] michael runs one replica, or the team has accepted the duplicate-run risk and tested the Redis path on the image.
 - [ ] The advisory egress path is allowed for dwight, or the sources are switched off on purpose.

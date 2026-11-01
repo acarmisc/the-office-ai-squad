@@ -49,7 +49,7 @@ agents:
         memory: 1Gi
     # Extra container env entries (standard EnvVar list), appended after the generated ones.
     env: []
-    # Model alias for this agent, resolved through the llm alias map in config.
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
     model: haiku-5-5
 
   jim:
@@ -67,7 +67,7 @@ agents:
         memory: 1Gi
     # Extra container env entries (standard EnvVar list), appended after the generated ones.
     env: []
-    # Model alias for this agent, resolved through the llm alias map in config.
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
     model: sonnet-5-5
 
   angela:
@@ -85,7 +85,7 @@ agents:
         memory: 1Gi
     # Extra container env entries (standard EnvVar list), appended after the generated ones.
     env: []
-    # Model alias for this agent, resolved through the llm alias map in config.
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
     model: sonnet-5-5
 
   dwight:
@@ -103,7 +103,7 @@ agents:
         memory: 1Gi
     # Extra container env entries (standard EnvVar list), appended after the generated ones.
     env: []
-    # Model alias for this agent, resolved through the llm alias map in config.
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
     model: sonnet-5-5
 
   darryl:
@@ -121,7 +121,7 @@ agents:
         memory: 1Gi
     # Extra container env entries (standard EnvVar list), appended after the generated ones.
     env: []
-    # Model alias for this agent, resolved through the llm alias map in config.
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
     model: sonnet-5-5
 
   pam:
@@ -139,7 +139,7 @@ agents:
         memory: 2Gi
     # Extra container env entries (standard EnvVar list), appended after the generated ones.
     env: []
-    # Model alias for this agent, resolved through the llm alias map in config.
+    # Model name sent unchanged to the LLM gateway (AGENT_MODEL_ID). No alias map is applied.
     model: sonnet-5-5
 
 # LLM gateway (OpenAI-compatible endpoint). Every agent gets these values.
@@ -163,6 +163,16 @@ secrets:
   # REQUIRED. Name of an existing Secret, one key per secret file. It is mounted read-only
   # at /var/run/secrets/squad (SECRETS_DIR). Keys are listed in deploy/secrets-examples/.
   existingSecret: code-squad-secrets
+
+api:
+  # Optional shared bearer token for POST /invocations and GET /jobs/{id} on every agent. michael
+  # also sends it to the specialists. Empty means no token check: each pod logs one warning.
+  # Webhook routes keep their own signature checks and are never gated by this token.
+  tokenSecret:
+    # Secret that holds the token. Empty disables the check.
+    name: ""
+    # Key inside that Secret, exposed as SQUAD_API_TOKEN through secretKeyRef.
+    key: api-token
 
 # Org-level configuration (layer 2 of the config model) and the project registry (layer 3).
 config:
@@ -192,10 +202,12 @@ egressProxy:
 
 webhooks:
   gitlab:
-    # Expose /webhooks/gitlab through the ingress (michael only).
+    # Expose /webhooks/gitlab through the ingress (michael only). Also sets WEBHOOK_PROVIDERS on
+    # michael, so the route is registered there.
     enabled: true
   github:
-    # Expose /webhooks/github through the ingress (michael only).
+    # Expose /webhooks/github through the ingress (michael only). Also sets WEBHOOK_PROVIDERS on
+    # michael, so the route is registered there.
     enabled: true
   # Optional separate Secret with the webhook signing secrets (keys gitlab-webhook-secret and
   # github-webhook-secret). It is mounted read-only on michael at /var/run/secrets/squad-webhooks
@@ -310,7 +322,7 @@ networkPolicy:
 
 devops:
   # Namespaces where darryl gets read-only access: a Role and RoleBinding are created in each.
-  # Empty means darryl has no Kubernetes access. Keep darryl's ops.namespaces in config in sync.
+  # Empty means darryl has no Kubernetes access. Keep darryl's ops.allowed_namespaces in config in sync.
   allowedNamespaces: []
   # When true, darryl gets one read-only ClusterRole instead (allowedNamespaces is then ignored).
   # Strongly discouraged. Secrets are never readable in either mode.

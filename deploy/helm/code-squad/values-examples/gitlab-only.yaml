@@ -94,8 +94,9 @@ config:
       comment_style: summary
   projects:
     # Single GitLab group, one project entry with a glob.
-    platform-group:
-      provider: gitlab
-      base_url: https://gitlab.example.com
-      match: ["platform/*"]
-      extends: balanced
+    projects:
+      - match: platform/*
+        key: platform-group
+        provider: gitlab
+        base_url: https://gitlab.example.com
+        extends: balanced

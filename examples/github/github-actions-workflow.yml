@@ -11,6 +11,9 @@
 #   SQUAD_URL    base URL of michael, for example https://squad.example.com (required)
 #   SQUAD_POST   "true" lets michael publish its review. Any other value is a dry run.
 # No repository secret is needed: the squad authenticates to GitHub with its own GitHub App.
+# If the squad requires the shared token (api.tokenSecret in the chart), store it as a repository
+# secret SQUAD_API_TOKEN, pass it to the step as an environment variable and send it with
+# `-H "authorization: Bearer ..."`. Fork pull requests get no secrets, so their reviews fail then.
 # Fork pull requests get no secrets; this job reads only variables, and it never checks out or
 # runs code from the pull request.
 

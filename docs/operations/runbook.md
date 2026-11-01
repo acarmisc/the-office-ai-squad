@@ -17,7 +17,7 @@ failures and their fixes, how to replay an invocation without writing anything, 
 | Tokens by kind | `squad_tokens_total` rate | Model usage (input and output) |
 | Tool calls by tool class | `squad_tool_calls_total` rate | Read, local mutation and external write activity |
 | Dry-run invocations (24h) | `squad_dry_run_total` increase | External writes refused by dry run |
-| VCS errors by provider and operation | `squad_vcs_errors_total` rate | Intended; see the known gap below |
+| VCS errors by provider and operation | `squad_vcs_errors_total` rate | Final VCS request failures; see the metric glossary |
 | Config reload failures (1h) | `squad_config_reload_failures_total` increase | Broken organisation or registry files |
 | CVE cache hits | `squad_cve_cache_hits_total` rate | Advisory cache effectiveness |
 
@@ -34,12 +34,10 @@ points; tune them with a baseline.
 | `CodeSquadHighInvocationP95` | p95 latency above 300 seconds, for 15 minutes | warning | Check the gateway, specialist timeouts and sandbox deadlines. |
 | `CodeSquadNoMichaelInvocations` | No michael invocations for one hour | info | Expected outside working hours or without webhooks. Check the webhook setup if it is unexpected. |
 | `CodeSquadConfigReloadFailures` | Any reload failure in 15 minutes | warning | Validate the mounted files with `squad config validate`. The last good config stays active. |
-| `CodeSquadVcsErrors` | Sustained VCS errors for 10 minutes | warning | Known gap: this metric is not yet incremented, so the alert cannot fire. |
+| `CodeSquadVcsErrors` | Sustained VCS errors for 10 minutes | warning | Check the VCS token, the rate limit and the host reachability. The logs and result `warnings` name the failing call. |
 
 ### Known gaps in the alerts
 
-- `squad_vcs_errors_total` is declared but never incremented. Until the provider increments it, watch the `warnings` of results
-  and the pod logs for "VCS unavailable" and rate-limit messages.
 - The dashboard panel for `squad_dry_run_total` and the alert set do not cover the webhook gateway's rejections (401, 503). Those
   appear only in the HTTP status and in the logs of michael.
 
@@ -58,7 +56,7 @@ Names are the exact exposition names. Prometheus adds `_total` to counters and `
 | `squad_dry_run_total` | counter | `agent` | External write attempts refused by dry run. |
 | `squad_cve_cache_hits_total` | counter | none | Advisory cache hits. |
 | `squad_config_reload_failures_total` | counter | none | Rejected configuration reloads. |
-| `squad_vcs_errors_total` | counter | `provider`, `operation` | VCS errors. Not yet incremented. |
+| `squad_vcs_errors_total` | counter | `provider`, `operation` | VCS requests that failed for good: after the retries, or a transport error. Also counts 4xx and 5xx responses raised as VCS errors. A 404 is not counted. `provider` is `gitlab`, `github` or `jira`. `operation` is the HTTP method and the first API resource, for example `GET repos` or `POST projects`. |
 
 Metrics are served on `GET /metrics` of every agent. Michael's webhook outcomes are not counted separately.
 
@@ -90,7 +88,7 @@ gateway's budgets keyed on the `project:` tag. See [recipe 9](../configuration/r
 | Invocations fail with the exception type in `warnings` (for example a connection error) and `status: failed` | LLM gateway down or unreachable from the pod | Check the gateway health and the NetworkPolicy allow-list (`llmGatewayCIDRs`). Check `LLM_BASE_URL`. |
 | Many `incomplete` results with an iteration-limit warning | Turn limit reached before `finish` | Look at the change size and the prompt. Raise `agents.<id>.max_iterations` within `limits.max_iterations`, or split the change. |
 | Gateway returns rate-limit errors | Too many concurrent reviews | Lower `routing.fan_out_concurrency`, enable the debounce (`trigger.debounce_seconds`), and ask the gateway team for a higher limit. |
-| Webhook returns `404` | `WEBHOOK_PROVIDERS` not set for the provider | Set it on michael (see [Helm](../deployment/helm.md#webhooks-need-one-more-variable)). |
+| Webhook returns `404` | `webhooks.<provider>.enabled` is false, so `WEBHOOK_PROVIDERS` does not name the provider | Set it on michael (see [Helm](../deployment/helm.md#webhooks)). |
 | Webhook returns `401` | Signing secret mismatch | Re-enter the stored secret; check for whitespace (see [GitLab webhook setup](../vcs/gitlab.md) for how each source trims). |
 | Webhook returns `503` | Organisation file invalid | Validate the mounted `squad.yaml`; fix and redeliver. |
 | Webhook returns `202` but no review appears | `vcs.bot_username` missing, draft, skip label, WIP title, or commenter not allowed | Read the `reason` in the response body and fix the cause. |

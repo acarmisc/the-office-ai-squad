@@ -39,7 +39,7 @@ Assets that the squad does not hold: merge rights, cluster write rights, custome
 | T2 | Replayed delivery | Delivery-id de-duplication after a final outcome | In place, per replica |
 | T3 | Bot-loop: squad reacting to its own events | `vcs.bot_username` required; own-author events ignored | In place; a project without it is ignored |
 | T4 | Unauthorised commenter starts a run | `trigger.allowed_commenters` (empty means nobody) | In place |
-| T5 | Unauthenticated caller on `/invocations` | None in the application. Not routed by the ingress. Network policies and the Service are the only controls | **Residual, operator-dependent** |
+| T5 | Unauthenticated caller on `/invocations` | Shared bearer token (`SQUAD_API_TOKEN`, constant-time compare) when configured; not routed by the ingress; network policies and the Service | **Residual, operator-dependent**: open when the token is unset; one shared token with no caller identity |
 | T6 | `post: true` from an untrusted caller publishes | Organisation `posting.force_dry_run` overrides every request | In place when set; off by default |
 | T7 | Prompt injection through the diff, description, comments, files, logs, skills, advisories | Untrusted wrapping with random delimiters, rule in every prompt, deterministic verdict rules, guards, specialists do not publish by default | In place; model reasoning can still be swayed. See [Prompt injection](prompt-injection.md) |
 | T8 | A change edits its own review rules | Skills and repository config are read from the target branch; the head is an org opt-in with a warning | In place |
@@ -61,9 +61,9 @@ Assets that the squad does not hold: merge rights, cluster write rights, custome
 
 ## Residual risks
 
-1. **Unauthenticated `/invocations`** (T5). Any pod that can reach the Service can start a review. With `post: true`
-   and no `force_dry_run`, it can publish. Mitigate with network policy, and put authentication in front of any external
-   route (see [Ingress and webhooks](../deployment/ingress-webhooks.md)).
+1. **Unauthenticated `/invocations`** (T5). With the token unset, any pod that can reach the Service can start a review.
+   With `post: true` and no `force_dry_run`, it can publish. Set `api.tokenSecret`, mitigate with network policy, and put
+   authentication in front of any external route (see [Ingress and webhooks](../deployment/ingress-webhooks.md)).
 2. **Shared Secret.** Every agent pod can read every key in the Secret, so a compromised agent can read the VCS tokens
    and the webhook secrets.
 3. **Model judgement.** The model may miss a defect, invent one, or be steered by content it reads. Verdict rules and

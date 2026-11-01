@@ -524,7 +524,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Model alias to gateway model name.",
+          "description": "Reserved: model alias to gateway model name. Not applied in this version; model aliases are passed to the LiteLLM gateway unchanged.",
           "title": "Aliases",
           "type": "object"
         },

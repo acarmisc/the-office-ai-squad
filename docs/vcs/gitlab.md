@@ -41,7 +41,7 @@ Two options:
 1. **CI job** (no inbound route). `examples/gitlab/gitlab-ci-snippet.yml` defines a job that runs on
    merge request pipelines, calls michael's `/invocations` and stores the result as an artifact. The
    `SQUAD_POST` variable controls publication; the default is a dry run.
-2. **Webhook** (the squad receives the events). Set `WEBHOOK_PROVIDERS=gitlab` on michael, store the
+2. **Webhook** (the squad receives the events). Keep `webhooks.gitlab.enabled` true in the chart, store the
    secret as `gitlab-webhook-secret`, and add a project webhook with the URL `https://<squad host>/webhooks/gitlab`.
    Enable merge request events and comments. Details and troubleshooting are in
    `examples/gitlab/webhook-setup.md` in the repository.
@@ -86,7 +86,7 @@ the verdict is `incomplete` when a specialist could not read the change.
 
 | Symptom | Likely cause and fix |
 | --- | --- |
-| Webhook returns `404` | `WEBHOOK_PROVIDERS` does not include `gitlab`. |
+| Webhook returns `404` | `webhooks.gitlab.enabled` is false, so `WEBHOOK_PROVIDERS` does not include `gitlab`. |
 | Webhook returns `401` | The secret in GitLab differs from `gitlab-webhook-secret`. |
 | Webhook answers `ignored` with a `bot_username` reason | Set `vcs.bot_username` for the project. |
 | Run warns "VCS unavailable" | The token secret name is wrong, the secret is missing, or the provider cannot be inferred. |

@@ -125,10 +125,17 @@ for the default and `production-ha` renders, all 6 Deployments set `runAsNonRoot
 `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false`, `drop: [ALL]` and
 `seccompProfile: RuntimeDefault`.
 
+## Multi-arch build
+
+`docker buildx build --platform linux/amd64,linux/arm64 -f deploy/Dockerfile` succeeded for
+both platforms (arm64 through QEMU emulation, `tonistiigi/binfmt --install arm64`) with a
+`docker-container` builder. Because the validation environment intercepts TLS, the base
+image was a local multi-arch copy of `python:3.12-slim` that trusts the proxy CA, passed as
+`--build-arg PYTHON_IMAGE=...` and served from a throwaway local registry. The committed
+`deploy/Dockerfile` was unchanged. The arm64 image was built, not run.
+
 ## Not done
 
-- `docker buildx build --platform linux/amd64,linux/arm64`: only the native amd64 image was
-  built (through `docker compose build`). The arm64 build is not validated.
 - Live kind smoke (`deploy/kind/kind-smoke.sh`): blocked by the kubeadm failure above.
 - The NetworkPolicy, RBAC and sandbox paths were not exercised at runtime (none of them
   run in the compose demo or the kind values).

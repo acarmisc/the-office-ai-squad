@@ -60,7 +60,7 @@ class GitLabProvider:
         self._root = base_url.rstrip("/")
         self._api = f"{self._root}/api/v4"
         self._token = token
-        self._http = http or HttpClient()
+        self._http = http or HttpClient(provider="gitlab")
 
     def whoami(self) -> BotIdentity:
         data = as_dict(self._get(f"{self._api}/user"))

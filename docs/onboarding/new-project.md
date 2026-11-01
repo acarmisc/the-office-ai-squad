@@ -49,7 +49,7 @@ Choose one.
 - [ ] **CI job:** copy `examples/gitlab/gitlab-ci-snippet.yml` into the project's `.gitlab-ci.yml`, or
       `examples/github/github-actions-workflow.yml` into `.github/workflows/`. Set the variables `SQUAD_URL`
       (and `SQUAD_POST`, which stays `false` for now).
-- [ ] **Webhook:** confirm the platform has `WEBHOOK_PROVIDERS` for the provider, add the secret
+- [ ] **Webhook:** confirm `webhooks.<provider>.enabled` is true in the chart, add the secret
       (`gitlab-webhook-secret` or `github-webhook-secret`), and create the webhook as described in
       [GitLab webhook setup](../vcs/gitlab.md) or [GitHub](../vcs/github.md). Use the URL
       `https://<squad host>/webhooks/<provider>`.
@@ -83,6 +83,8 @@ uv run squad config validate .squad/config.yml
 curl -sS -X POST "$SQUAD_URL/invocations" -H 'content-type: application/json' \
   -d '{"prompt": "Review change request 42 in project acme/web-app.", "project": "acme/web-app", "target": "42", "mode": "review", "post": false}'
 ```
+
+When the platform requires the shared token, add `-H "Authorization: Bearer $SQUAD_API_TOKEN"` to the call.
 
 - [ ] Check the result: the `verdict`, the `findings`, `stats.skills_applied` (your skills appear here when they
       match), `stats.config_hash`, and every entry in `warnings`. A warning about a rejected layer, an unavailable

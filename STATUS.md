@@ -2,7 +2,7 @@
 
 Resume cold from here. The full brief is in `docs/BRIEF.md`; ADRs in `docs/decisions/`.
 
-Current milestone: **M10–M11 — packaging, docs, final validation**
+Current milestone: **all milestones done** — see `docs/HANDOFF.md` for limitations and next steps
 
 | # | Milestone | State |
 |---|---|---|
@@ -16,13 +16,14 @@ Current milestone: **M10–M11 — packaging, docs, final validation**
 | M7 | darryl | done |
 | M8 | Sandbox + pam | done |
 | M9 | Orchestrator (michael) | done |
-| M10 | Packaging & K8s | todo |
-| M11 | Observability, docs, examples, eval | todo |
+| M10 | Packaging & K8s | done |
+| M11 | Observability, docs, examples, eval | done |
 
 ## Open risks
 
 - Strands hook/limit APIs are recent (1.63); pinned in `uv.lock`.
-- Docker daemon / kind availability in the build environment is unverified.
+- kind cannot create clusters in the build environment (nested container); compose smoke and Helm render fallback used instead (docs/deployment/local-validation.md).
+- Several configuration keys are accepted but not yet applied at run time (listed in docs/HANDOFF.md).
 
 ## Way of working
 

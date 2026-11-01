@@ -32,6 +32,8 @@ First complete version, built milestone by milestone (see `STATUS.md`).
 
 ### Notes
 
-- Known limitations are listed in `docs/HANDOFF.md`. Two of them need attention before production: the webhook routes are not enabled by
-  the chart, and the sandbox falls back to a local process when no sandbox namespace is set.
-- The container image does not include the optional Redis client, so `SESSION_STORE_URL` with a Redis URL is not usable yet.
+- Known limitations are listed in `docs/HANDOFF.md`. Two of them need attention before production: `/invocations` is open unless
+  `SQUAD_API_TOKEN` is set, and the sandbox falls back to a local process when no sandbox namespace is set.
+- The Helm chart sets `WEBHOOK_PROVIDERS` on michael from `webhooks.*.enabled`, so the webhook routes are registered by default.
+- The container image installs the `redis` extra, so a Redis `SESSION_STORE_URL` starts. Job state is still per replica.
+- `squad_vcs_errors_total` counts final VCS failures per provider and operation. A 404 is not counted.

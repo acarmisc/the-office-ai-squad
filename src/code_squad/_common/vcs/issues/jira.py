@@ -27,7 +27,7 @@ class JiraIssueTracker:
         http: HttpClient | None = None,
     ) -> None:
         self._root = base_url.rstrip("/")
-        self._http = http or HttpClient()
+        self._http = http or HttpClient(provider="jira")
         raw = f"{email}:{api_token}".encode()
         self._headers = {
             "Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}",

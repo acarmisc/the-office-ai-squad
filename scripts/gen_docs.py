@@ -60,94 +60,6 @@ _AGENT_OVERRIDE_VARS: Final[tuple[str, ...]] = (
 _DEFAULT_JSON_CHARS: Final = 120
 _CONFIG_ANCHOR: Final = "Organisation and repository keys"
 
-# Variables read by the code that are not in BOOTSTRAP_ENV. TODO(architect): move
-# them into bootstrap.BOOTSTRAP_ENV so they reach .env.example and this page.
-_UNLISTED_VARIABLES: Final[tuple[tuple[str, str, str], ...]] = (
-    (
-        "WEBHOOK_PROVIDERS",
-        "Comma-separated providers whose webhook route is registered on michael: "
-        "gitlab, github. Unset means no /webhooks route exists.",
-        "-",
-    ),
-    (
-        "WEBHOOK_SECRETS_DIR",
-        "Directory holding gitlab-webhook-secret and github-webhook-secret. Unset "
-        "means "
-        "the secret provider is used.",
-        "-",
-    ),
-    (
-        "POD_NAMESPACE",
-        "Namespace used for specialist service DNS names when no URL is configured.",
-        "default",
-    ),
-    (
-        "SANDBOX_NAMESPACE",
-        "Selects the Kubernetes sandbox for pam when set. When unset, pam uses the "
-        "local process sandbox, which is for development only.",
-        "-",
-    ),
-    (
-        "SANDBOX_IMAGE",
-        "Sandbox pod image. Required when SANDBOX_NAMESPACE is set.",
-        "-",
-    ),
-    (
-        "SANDBOX_ACTIVE_DEADLINE_SECONDS",
-        "Hard wall-clock limit of a sandbox pod.",
-        "1800",
-    ),
-    (
-        "SANDBOX_TTL_SECONDS_AFTER_FINISHED",
-        "Stored on the sandbox backend but not applied: pods carry no TTL field.",
-        "300",
-    ),
-    (
-        "SANDBOX_RESOURCES_JSON",
-        "JSON object with requests and limits for each sandbox pod.",
-        '{"requests": {"cpu": "250m", "memory": "512Mi"}, "limits": {"cpu": "2", '
-        '"memory": "2Gi"}}',
-    ),
-    (
-        "MICHAEL_LLM_INTENT",
-        "Opt-in: a small model classifies requests that the rules cannot classify.",
-        "off",
-    ),
-    (
-        "MICHAEL_LLM_SUMMARY",
-        "Opt-in: a model writes a neutral narrative above the deterministic summary.",
-        "off",
-    ),
-    (
-        "MICHAEL_SUMMARY_MODEL",
-        "Model alias for the optional summary narrative.",
-        "sonnet-5-5",
-    ),
-    (
-        "LOG_LEVEL",
-        "Log level of the process. Read directly; config observability.log_level is "
-        "not "
-        "applied.",
-        "INFO",
-    ),
-    (
-        "SQUAD_SECRET_<NAME>",
-        "Secret values for the env secret provider (development and tests only).",
-        "-",
-    ),
-    (
-        "JIRA_BASE_URL",
-        "Jira base URL. When set and the jira-api-token secret is available, pam reads "
-        "task text from Jira (read only) instead of the VCS issue tracker.",
-        "-",
-    ),
-    (
-        "KUBERNETES_SERVICE_HOST",
-        "Set by Kubernetes. darryl uses it to detect in-cluster configuration.",
-        "-",
-    ),
-)
-
 _CAPABILITY_FALLBACKS: Final[dict[Capability, str]] = {
     Capability.CHECK_RUNS: (
         "Without a GitHub App, verdicts are published as commit statuses and michael "
@@ -488,16 +400,7 @@ def render_environment() -> str:
         "",
         NESTING_NOTE,
         "",
-        "## Other variables read by the code",
-        "",
-        "These are read by the code but are not yet in the bootstrap table.",
-        "",
-        "| Variable | Description | Default |",
-        "| --- | --- | --- |",
     ]
-    for name, description, default in _UNLISTED_VARIABLES:
-        lines.append(f"| {_code(name)} | {_cell(description)} | {_cell(default)} |")
-    lines.append("")
     return "\n".join(lines)
 
 

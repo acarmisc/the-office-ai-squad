@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import time
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Final
+from urllib.parse import urlsplit
 
 import httpx
 
+from code_squad._common.observability import VCS_ERRORS
 from code_squad._common.vcs.base import NotFoundError, RateLimitedError, VcsError
 
 TIMEOUT_SECONDS: Final = 30.0
@@ -17,6 +20,8 @@ MAX_PAGES: Final = 100
 _BACKOFF_CAP: Final = 30.0
 _PROXY_ENV: Final = "EGRESS_PROXY_URL"
 _ERROR_DETAIL_CHARS: Final = 200
+_RESOURCE: Final = re.compile(r"[a-z][a-z_-]{0,31}")
+_VERSION_SEGMENT: Final = re.compile(r"v\d+")
 
 Headers = Mapping[str, str]
 Params = Mapping[str, Any]
@@ -32,8 +37,10 @@ class HttpClient:
         rand: Callable[[], float] = random.random,
         proxy_url: str | None = None,
         max_retries: int = MAX_RETRIES,
+        provider: str = "unknown",
     ) -> None:
         self.proxy: str | None = proxy_url or os.environ.get(_PROXY_ENV) or None
+        self._provider = provider
         self._client = client or httpx.Client(
             timeout=TIMEOUT_SECONDS, proxy=self.proxy, follow_redirects=True
         )
@@ -50,6 +57,23 @@ class HttpClient:
         headers: Headers | None = None,
         params: Params | None = None,
         json: Any = None,
+    ) -> httpx.Response:
+        try:
+            return self._send(method, url, headers=headers, params=params, json=json)
+        except NotFoundError:
+            raise
+        except (VcsError, httpx.HTTPError):
+            VCS_ERRORS.labels(self._provider, operation_label(method, url)).inc()
+            raise
+
+    def _send(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Headers | None,
+        params: Params | None,
+        json: Any,
     ) -> httpx.Response:
         attempt = 0
         while True:
@@ -121,6 +145,19 @@ class HttpClient:
 
     def _backoff(self, attempt: int) -> float:
         return min(_BACKOFF_CAP, float(2**attempt)) + self._rand() * 0.5
+
+
+def operation_label(method: str, url: str) -> str:
+    """Bounded metric label: the method and the first API resource, never the URL."""
+    segments = [
+        segment
+        for segment in urlsplit(url).path.split("/")
+        if segment and segment != "api" and not _VERSION_SEGMENT.fullmatch(segment)
+    ]
+    resource = segments[0] if segments else ""
+    if not _RESOURCE.fullmatch(resource):
+        resource = "other"
+    return f"{method.upper()} {resource}"
 
 
 def as_dict(value: object) -> dict[str, Any]:

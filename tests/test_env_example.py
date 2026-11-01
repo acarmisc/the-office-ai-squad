@@ -34,8 +34,9 @@ def test_every_bootstrap_variable_is_documented_with_its_default() -> None:
         for line in lines
         if line and not line.startswith("#") and "=" in line
     }
-    assert set(assignments) == {var.name for var in BOOTSTRAP_ENV}
-    for var in BOOTSTRAP_ENV:
+    examples = [var for var in BOOTSTRAP_ENV if var.in_example]
+    assert set(assignments) == {var.name for var in examples}
+    for var in examples:
         assert assignments[var.name] == (var.default or ""), var.name
         assert any(line.startswith(f"# {var.description}") for line in lines), var.name
 

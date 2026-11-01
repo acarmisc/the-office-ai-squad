@@ -20,6 +20,7 @@ import httpx
 from opentelemetry import propagate
 from pydantic import ValidationError
 
+from code_squad._common.auth import load_api_token
 from code_squad._common.contract import InvocationResult, RunStatus, Verdict
 
 OutcomeStatus = Literal["complete", "incomplete", "failed", "timed_out"]
@@ -162,6 +163,7 @@ class HttpSpecialistClient:
         self._configured: dict[str, str] = dict(configured or {})
         self._env: dict[str, str] = dict(env or {})
         self._namespace = namespace or self._env.get("POD_NAMESPACE") or "default"
+        self._token = load_api_token(self._env)
 
     def bind(self, configured: Mapping[str, str]) -> HttpSpecialistClient:
         return HttpSpecialistClient(
@@ -190,6 +192,8 @@ class HttpSpecialistClient:
         if not breaker.allow():
             raise CircuitOpenError(f"circuit open for {agent}")
         headers = {**trace_headers, "Idempotency-Key": idempotency_key}
+        if self._token is not None:
+            headers["Authorization"] = f"Bearer {self._token}"
         body = {**payload, "idempotency_key": idempotency_key}
         url = f"{self.base_url(agent)}/invocations"
         try:

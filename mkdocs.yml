@@ -80,5 +80,7 @@ nav:
       - 0008 Per-invocation services: decisions/0008-per-invocation-services.md
       - 0009 dwight offline mode: decisions/0009-dwight-offline-mode.md
       - 0010 Single publication path: decisions/0010-orchestrator-single-publication-path.md
+      - 0011 VCS abstraction: decisions/0011-vcs-abstraction.md
+      - 0012 Agent naming: decisions/0012-agent-naming.md
   - Handoff: HANDOFF.md
   - Build brief: BRIEF.md

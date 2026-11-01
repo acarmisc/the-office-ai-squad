@@ -11,7 +11,9 @@
 # The project must have a registry entry in the squad's projects.yaml, keyed by the project
 # path (CI_PROJECT_PATH). The job uses no token: the squad authenticates to GitLab itself.
 # Anything reachable at SQUAD_URL can start a review, so expose /invocations only on a
-# network that the runners can reach (see the deployment security notes).
+# network that the runners can reach (see the deployment security notes). When the squad
+# requires the shared token (api.tokenSecret in the chart), store it as a masked variable
+# SQUAD_API_TOKEN; the job sends it as a bearer token and sends an empty one when it is unset.
 
 squad-review:
   stage: test
@@ -38,6 +40,7 @@ squad-review:
       curl --silent --show-error --fail-with-body --max-time 2400 \
         -X POST "${SQUAD_URL}/invocations" \
         -H 'content-type: application/json' \
+        -H "authorization: Bearer ${SQUAD_API_TOKEN:-}" \
         --data "${body}" \
         -o squad-result.json
     - jq '{agent, status, verdict, summary, warnings}' squad-result.json

@@ -98,7 +98,7 @@ restricted Pod Security label.
 | # | Boundary | Crossing | Control |
 | --- | --- | --- | --- |
 | 1 | GitLab or GitHub to michael | Webhook deliveries | Signature check (`X-Gitlab-Token` or HMAC-SHA256 of the raw body), delivery-id de-duplication, bot-identity and author rules. |
-| 2 | CI or any caller to `/invocations` | Direct invocation | The application does not authenticate this endpoint. Access is limited by the network: no Ingress route, and network policies in the cluster. See [Hardening](../security/hardening.md). |
+| 2 | CI or any caller to `/invocations` | Direct invocation | Optional shared bearer token (`SQUAD_API_TOKEN`), open when unset. Also no Ingress route, and network policies in the cluster. See [Hardening](../security/hardening.md#api-authentication). |
 | 3 | Repository and change content to the model | Diffs, comments, files, logs, skills, advisories | Wrapped in `<untrusted>` blocks, a rule in every system prompt, and a tool policy that does not depend on the model. See [Prompt injection](../security/prompt-injection.md). |
 | 4 | Agents to the model gateway | LLM calls | Gateway URL and key from the environment, LiteLLM tags for attribution. |
 | 5 | Agents to the VCS | API calls and, for `pam`, git push | Tokens or GitHub App keys read through the secret provider by name. Git credentials go to a private askpass file for one call. |

@@ -41,5 +41,6 @@ Read [AGENTS.md](AGENTS.md), [STATUS.md](STATUS.md) and [the build brief](docs/B
 
 - The GitHub App manifest in `examples/github/github-app-manifest.json` requests `contents: write`. That permission is needed only
   when `pam` is deployed and used. Lower it to `read` otherwise.
-- `/invocations` is not authenticated by the application. Keep it inside the cluster network, or put an authenticating layer in front
-  of it. See [ingress and webhooks](docs/deployment/ingress-webhooks.md).
+- `/invocations` and `/jobs/{id}` require a shared bearer token only when `SQUAD_API_TOKEN` (or `SQUAD_API_TOKEN_FILE`) is set, and
+  are open otherwise. Set the token, and keep the endpoints inside the cluster network. See
+  [hardening](docs/security/hardening.md#api-authentication) and [ingress and webhooks](docs/deployment/ingress-webhooks.md).

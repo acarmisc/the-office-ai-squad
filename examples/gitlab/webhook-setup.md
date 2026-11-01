@@ -5,8 +5,8 @@ CI job in `gitlab-ci-snippet.yml` is the simpler option and needs no inbound rou
 
 ## What michael needs before it accepts deliveries
 
-1. The `gitlab` provider is enabled on michael: `WEBHOOK_PROVIDERS=gitlab`. The Helm chart
-   does not set this variable; add it under `agents.michael.env` in the values file.
+1. The `gitlab` provider is enabled on michael: `webhooks.gitlab.enabled: true` in the Helm values. The chart
+   sets `WEBHOOK_PROVIDERS` on michael from that flag.
 2. A signing secret named `gitlab-webhook-secret` is readable by michael, either as a key of
    the Secret in `secrets.existingSecret` or as a file in the directory named by
    `WEBHOOK_SECRETS_DIR`.
@@ -52,7 +52,7 @@ should give `accepted`. Use the project's dry-run setting (`posting.force_dry_ru
 
 ## Troubleshooting
 
-- Always `404`: `WEBHOOK_PROVIDERS` does not include `gitlab`, or the ingress routes to a
+- Always `404`: `webhooks.gitlab.enabled` is false (so `WEBHOOK_PROVIDERS` does not include `gitlab`), or the ingress routes to a
   different service.
 - Always `401`: the stored secret and the value typed in GitLab differ. Files from the
   Kubernetes secret provider lose only trailing line breaks; files in `WEBHOOK_SECRETS_DIR`

@@ -106,7 +106,7 @@ class AppAuth:
         self._app_id = app_id
         self._key = private_key_pem
         self._installation_id = installation_id
-        self._http = http or HttpClient()
+        self._http = http or HttpClient(provider="github")
         self._clock = clock
         self._base = base_url.rstrip("/")
         self._installations: dict[str, int] = {}
@@ -171,7 +171,7 @@ class GitHubProvider:
     ) -> None:
         self._base = base_url.rstrip("/")
         self._auth = auth
-        self._http = http or HttpClient()
+        self._http = http or HttpClient(provider="github")
         extra = {Capability.CHECK_RUNS} if auth.kind == "app" else set()
         self.capabilities = _BASE_CAPABILITIES | frozenset(extra)
 
