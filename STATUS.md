@@ -13,8 +13,8 @@ Current milestone: **M5–M8 — agents (jim, angela, dwight, darryl) and sandbo
 | M4 | Skills system | done |
 | M5 | jim + angela | done |
 | M6 | dwight | todo |
-| M7 | darryl | todo |
-| M8 | Sandbox + pam | todo |
+| M7 | darryl | done |
+| M8 | Sandbox + pam | done (service wiring pending) |
 | M9 | Orchestrator (michael) | todo |
 | M10 | Packaging & K8s | todo |
 | M11 | Observability, docs, examples, eval | todo |
