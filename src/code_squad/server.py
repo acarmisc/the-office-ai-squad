@@ -15,12 +15,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, Final
 
+import httpx
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.concurrency import run_in_threadpool
 
 from code_squad import __version__
+from code_squad._common.config.errors import ConfigError
+from code_squad._common.config.loader import ConfigSources, load_org
+from code_squad._common.config.schema import SquadConfig
 from code_squad._common.contract import InvocationRequest, InvocationResult
 from code_squad._common.model import ModelFactory, get_model_factory
 from code_squad._common.observability import (
@@ -30,9 +34,19 @@ from code_squad._common.observability import (
     record_result,
     span,
 )
-from code_squad._common.registry import get_spec
+from code_squad._common.registry import (
+    AGENT_IDS,
+    extra_knowledge_dirs,
+    get_spec,
+    register_extra_agents,
+)
 from code_squad._common.runtime import run_task
-from code_squad._common.services import ServiceBuilder, disabled_result, plan_run
+from code_squad._common.services import (
+    ServiceBuilder,
+    disabled_result,
+    plan_run,
+    sources_from_env,
+)
 from code_squad._common.session import (
     JobStore,
     MemorySessionStore,
@@ -41,6 +55,18 @@ from code_squad._common.session import (
 )
 from code_squad._common.spec import AgentSpec
 from code_squad._common.validation import ValidationFailure, validate_invocation
+from code_squad.michael.fanout import (
+    CircuitBreakers,
+    HttpSpecialistClient,
+    SpecialistClient,
+)
+from code_squad.michael.gateway import (
+    MichaelWiring,
+    WebhookGateway,
+    enabled_providers,
+    register_webhook_routes,
+)
+from code_squad.michael.orchestrator import Invoker, make_invoker
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +86,24 @@ def create_app(
     model_factory: ModelFactory | None = None,
     services_factory: ServicesFactory | None = None,
     session_store: SessionStore | None = None,
+    wiring: MichaelWiring | None = None,
 ) -> FastAPI:
     name = agent_name or os.environ.get("AGENT_NAME", _DEFAULT_AGENT)
     configure_logging(os.environ.get("LOG_LEVEL", "INFO"))
     configure_tracing(f"code-squad-{name}")
-    loaded = _load(name)
-    build_services: ServicesFactory = services_factory or ServiceBuilder().build
+    env = (
+        dict(wiring.env)
+        if wiring is not None and wiring.env is not None
+        else dict(os.environ)
+    )
+    sources = wiring.config_sources if wiring is not None else None
+    sources = sources if sources is not None else sources_from_env(env)
+    loaded = _load(name, sources)
+    base_services: ServicesFactory = services_factory or ServiceBuilder().build
+    build_services = _with_extra_knowledge(base_services)
     jobs = JobStore(session_store or _default_store())
+    client = _specialist_client(wiring) if name == _DEFAULT_AGENT else None
+    invoker: Invoker = make_invoker(client) if client is not None else _run_agent
     app = FastAPI(title="Code Squad", version=__version__)
 
     @app.get("/ping")
@@ -120,11 +157,14 @@ def create_app(
                 services,
                 factory,
                 plan.post_override,
+                invoker,
             )
             return JSONResponse(
                 status_code=202, content={"job_id": job_id}, background=background
             )
-        result = await _execute(plan.spec, req, services, factory, plan.post_override)
+        result = await _execute(
+            plan.spec, req, services, factory, plan.post_override, invoker
+        )
         return JSONResponse(content=result.model_dump(mode="json"))
 
     @app.get("/jobs/{job_id}")
@@ -134,15 +174,76 @@ def create_app(
             raise HTTPException(status_code=404, detail="unknown job")
         return JSONResponse({"job_id": job_id, **entry})
 
+    if client is not None:
+        providers = enabled_providers(env)
+        if providers:
+            gateway = WebhookGateway(
+                env=env,
+                sources=sources,
+                jobs=jobs,
+                client=client,
+                services_factory=build_services,
+                model_factory=model_factory,
+                secrets=wiring.secret_provider if wiring is not None else None,
+            )
+            register_webhook_routes(app, gateway, providers)
+
     return app
 
 
-def _load(name: str) -> _Loaded:
+def _load(name: str, sources: ConfigSources) -> _Loaded:
     try:
+        if name not in AGENT_IDS:
+            _register_extras(sources)
         return _Loaded(spec=get_spec(name), error=None)
     except Exception as exc:
         logger.error("agent failed to load", extra={"agent": name})
         return _Loaded(spec=None, error=type(exc).__name__)
+
+
+def _register_extras(sources: ConfigSources) -> None:
+    try:
+        org = load_org(sources)
+    except ConfigError:
+        return
+    register_extra_agents(SquadConfig.model_validate(org).extra_agents)
+
+
+def _with_extra_knowledge(base: ServicesFactory) -> ServicesFactory:
+    def build(request: InvocationRequest, agent: str) -> dict[str, Any]:
+        services = base(request, agent)
+        extra = extra_knowledge_dirs(agent)
+        if extra:
+            current = services.get("knowledge_extra_dirs")
+            existing = list(current) if isinstance(current, list) else []
+            services["knowledge_extra_dirs"] = [*existing, *extra]
+        return services
+
+    return build
+
+
+def _specialist_client(wiring: MichaelWiring | None) -> SpecialistClient:
+    if wiring is not None and wiring.specialist_client is not None:
+        return wiring.specialist_client
+    return HttpSpecialistClient(
+        httpx.Client(), breakers=CircuitBreakers(), env=dict(os.environ)
+    )
+
+
+def _run_agent(
+    spec: AgentSpec,
+    req: InvocationRequest,
+    services: dict[str, Any],
+    factory: ModelFactory,
+    post_override: bool | None,
+) -> InvocationResult:
+    return run_task(
+        spec,
+        req,
+        services=services,
+        model_factory=factory,
+        post_override=post_override,
+    )
 
 
 def _default_store() -> SessionStore:
@@ -171,17 +272,13 @@ async def _execute(
     services: dict[str, Any],
     factory: ModelFactory,
     post_override: bool | None,
+    invoker: Invoker,
 ) -> InvocationResult:
     invocation_id = uuid.uuid4().hex
     started = time.perf_counter()
     with span("invocation", agent=spec.name, invocation_id=invocation_id):
         result = await run_in_threadpool(
-            run_task,
-            spec,
-            req,
-            services=services,
-            model_factory=factory,
-            post_override=post_override,
+            invoker, spec, req, services, factory, post_override
         )
     _finish(result, invocation_id, time.perf_counter() - started)
     return result
@@ -195,17 +292,12 @@ def _run_job(
     services: dict[str, Any],
     factory: ModelFactory,
     post_override: bool | None,
+    invoker: Invoker,
 ) -> None:
     jobs.update(job_id, "running")
     started = time.perf_counter()
     try:
-        result = run_task(
-            spec,
-            req,
-            services=services,
-            model_factory=factory,
-            post_override=post_override,
-        )
+        result = invoker(spec, req, services, factory, post_override)
     except Exception:
         logger.error("job failed", extra={"agent": spec.name, "invocation_id": job_id})
         jobs.update(job_id, "failed")
