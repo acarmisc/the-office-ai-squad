@@ -1,9 +1,12 @@
 """Webhook gateway for michael: GitLab and GitHub receivers with async orchestration.
 
-Order of checks for each delivery: signature (401), JSON body (400), supported event
-(202 ignored), delivery id already seen (200 duplicate), effective configuration
-(503 when invalid), bot identity configured, trigger rules, debounce. Only then a job is
-created and the response is 202 accepted; the orchestration runs after the response.
+Order of checks for each delivery: signature (401), JSON body (400), parseable event
+(400), supported event (202 ignored), delivery id already recorded (200 duplicate),
+effective configuration (503 when invalid), bot identity configured, trigger rules,
+debounce. Only then a job is created and the response is 202 accepted; the orchestration
+runs after the response. A delivery id is recorded only for final outcomes (accepted or
+deliberately ignored). A refused delivery (401, 400, 503, missing bot identity) stays
+redeliverable.
 
 Bot identity comes from ``vcs.bot_username`` in the organisation or registry layer. A
 project without it ignores every event, which fails closed against bot loops.
@@ -91,6 +94,8 @@ class WebhookResponse:
     status: int
     body: dict[str, Any]
     job: Callable[[], None] | None = None
+    # False when the delivery must stay redeliverable (failed, not decided).
+    final: bool = True
 
 
 class Debouncer:
@@ -151,15 +156,30 @@ class WebhookGateway:
     ) -> WebhookResponse:
         secret = self._secret(provider)
         if secret is None or not _verify(provider, headers, raw, secret):
-            return WebhookResponse(401, {"detail": "invalid webhook signature"})
+            return WebhookResponse(
+                401, {"detail": "invalid webhook signature"}, final=False
+            )
         payload = _json_object(raw)
         if payload is None:
-            return WebhookResponse(400, {"detail": "body must be a JSON object"})
-        event = _parse(provider, headers, payload)
+            return WebhookResponse(
+                400, {"detail": "body must be a JSON object"}, final=False
+            )
+        try:
+            event = _parse(provider, headers, payload)
+        except (TypeError, ValueError):
+            return WebhookResponse(
+                400, {"detail": "webhook payload could not be read"}, final=False
+            )
         if event is None:
             return _ignored("unsupported event")
-        if event.delivery_id and self._deduper.seen(event.delivery_id):
+        if event.delivery_id and self._deduper.is_recorded(event.delivery_id):
             return WebhookResponse(200, {"status": "duplicate"})
+        response = self._route(event)
+        if event.delivery_id and response.final:
+            self._deduper.record(event.delivery_id)
+        return response
+
+    def _route(self, event: WebhookEvent) -> WebhookResponse:
         try:
             effective = self._effective(event.project)
         except ConfigError:
@@ -169,18 +189,29 @@ class WebhookGateway:
                     "status": "unavailable",
                     "reason": "organisation configuration is invalid",
                 },
+                final=False,
             )
         config = effective.config
         bot = config.vcs.bot_username
         if not bot:
-            return _ignored("vcs.bot_username is not configured for this project")
+            return WebhookResponse(
+                202,
+                {
+                    "status": "ignored",
+                    "reason": "vcs.bot_username is not configured for this project",
+                },
+                final=False,
+            )
         decision = decide_trigger(
             event,
             bot_username=bot,
             on_push=config.trigger.on_push,
             allowed_commenters=config.trigger.allowed_commenters,
+            events=config.trigger.events,
             skip_labels=config.trigger.skip_labels,
             skip_draft=config.trigger.skip_draft,
+            skip_wip_titles=config.trigger.skip_wip_titles,
+            skip_bot_authors=config.trigger.skip_bot_authors,
         )
         if not decision.run or decision.intent is None:
             return _ignored(decision.reason)

@@ -15,6 +15,7 @@ from tests.agents.support import HEAD, NUMBER, PROJECT, writes_of
 from tests.michael.support import (
     BOT,
     GITLAB_SECRET,
+    ORG_YAML,
     WEBHOOK_SECRET,
     FakeSpecialists,
     no_model,
@@ -339,3 +340,84 @@ def test_invocations_on_michael_with_respond_async_completes(tmp_path: Path) -> 
     job = _job(client, accepted)
     assert job["state"] == "done"
     assert job["result"]["agent"] == "michael"
+
+
+# ----- delivery redelivery after refusals -------------------------------------------
+
+
+def test_delivery_refused_by_invalid_config_is_processed_on_redelivery(
+    tmp_path: Path,
+) -> None:
+    invalid = f"vcs:\n  bot_username: {BOT}\ntrigger:\n  events: [not_an_event]\n"
+    specialists = FakeSpecialists(
+        {"jim": result_for("jim"), "dwight": result_for("dwight")}
+    )
+    client, _fake = webhook_client(tmp_path, specialists, org=invalid)
+    refused = _post_github(client, "pull_request", _pull_request(), delivery="retry-1")
+    assert refused.status_code == 503
+    assert specialists.calls == []
+
+    (tmp_path / "squad.yaml").write_text(ORG_YAML, encoding="utf-8")
+    redelivered = _post_github(
+        client, "pull_request", _pull_request(), delivery="retry-1"
+    )
+    assert redelivered.status_code == 202
+    assert _job(client, redelivered)["state"] == "done"
+    assert sorted(specialists.agents()) == ["dwight", "jim"]
+
+
+def test_delivery_rejected_by_signature_is_processed_on_redelivery(
+    tmp_path: Path,
+) -> None:
+    specialists = FakeSpecialists({"jim": result_for("jim")})
+    client, _fake = webhook_client(tmp_path, specialists)
+    bad = _post_github(
+        client, "pull_request", _pull_request(), delivery="sig-1", secret="wrong"
+    )
+    assert bad.status_code == 401
+    good = _post_github(client, "pull_request", _pull_request(), delivery="sig-1")
+    assert good.status_code == 202
+
+
+def test_unreadable_payload_is_400_and_processed_on_redelivery(tmp_path: Path) -> None:
+    client, _fake = webhook_client(tmp_path, ALICE_OK)
+    broken = _pull_request()
+    broken["pull_request"]["number"] = "not-a-number"
+    refused = _post_github(client, "pull_request", broken, delivery="parse-1")
+    assert refused.status_code == 400
+    fixed = _post_github(client, "pull_request", _pull_request(), delivery="parse-1")
+    assert fixed.status_code == 202
+
+
+def test_deliberately_ignored_delivery_is_reported_as_duplicate(tmp_path: Path) -> None:
+    client, _fake = webhook_client(tmp_path, FakeSpecialists())
+    first = _post_github(
+        client,
+        "issue_comment",
+        _issue_comment("/squad review", "mallory"),
+        delivery="ignored-1",
+    )
+    second = _post_github(
+        client,
+        "issue_comment",
+        _issue_comment("/squad review", "mallory"),
+        delivery="ignored-1",
+    )
+    assert first.json()["status"] == "ignored"
+    assert second.status_code == 200
+    assert second.json() == {"status": "duplicate"}
+
+
+def test_trigger_events_setting_is_enforced_by_the_gateway(tmp_path: Path) -> None:
+    org = (
+        f"vcs:\n  bot_username: {BOT}\n"
+        "trigger:\n  allowed_commenters: [alice]\n  events: [review_requested]\n"
+    )
+    client, _fake = webhook_client(tmp_path, ALICE_OK, org=org)
+    response = _post_github(
+        client, "issue_comment", _issue_comment("/squad review", "alice"), delivery="e1"
+    )
+    assert response.json() == {
+        "status": "ignored",
+        "reason": "event not enabled in trigger.events",
+    }

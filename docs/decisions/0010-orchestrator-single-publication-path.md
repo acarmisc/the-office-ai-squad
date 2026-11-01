@@ -49,7 +49,8 @@ publication step of the orchestrator as it stands.
   narrative is opt-in too (`MICHAEL_LLM_SUMMARY`, model `MICHAEL_SUMMARY_MODEL`, default
   `sonnet-5-5`).
 - Webhook deliveries are verified (GitLab token or GitHub HMAC over the raw body), then
-  de-duplicated by delivery id, then answered with 202 immediately. The review runs as an
+  checked against recorded delivery ids (a duplicate gets 200), then answered with 202
+  immediately. A delivery id is recorded only for accepted or deliberately ignored events. The review runs as an
   asynchronous job. A debounce window collapses repeated events for the same project,
   change request and head.
 - Extra agents are registered at startup from the organisation configuration. Their tool
@@ -74,12 +75,15 @@ publication step of the orchestrator as it stands.
 - Incident results are posted as issue comments only when the target is a number, which
   must then be an issue number. Implementation results are not written by the
   orchestrator, because pam opens its own change request.
-- Trigger settings `trigger.events`, `trigger.skip_wip_titles` and
-  `trigger.skip_bot_authors` are not read by the webhook gateway yet. Draft change
-  requests, skip labels, `allowed_commenters` and `on_push` are enforced. The WIP title
-  and bot author checks are always on in `decide_trigger`.
-- A delivery id is recorded when first seen, even if the event is later refused (for
-  example because the organisation configuration is invalid). A redelivery of the same
-  id is then reported as a duplicate.
+- Trigger settings `trigger.events`, `trigger.skip_draft`, `trigger.skip_wip_titles`,
+  `trigger.skip_bot_authors`, `trigger.skip_labels`, `allowed_commenters` and `on_push`
+  are all enforced by the webhook gateway. The bot's own events are always ignored, whatever
+  `skip_bot_authors` says, to prevent loops. `skip_bot_authors` covers other bot accounts
+  (logins ending in `[bot]`, or with `bot` as a separate token such as `renovate-bot`).
+- A delivery id is recorded only once the delivery is accepted or deliberately ignored
+  (for example by a trigger rule or the debounce window). A delivery refused as a 401, a
+  400, a 503 for an invalid organisation configuration, or because `vcs.bot_username` is
+  missing is not recorded, so a redelivery with the same id is processed once the cause is
+  fixed. A redelivery of an accepted or ignored delivery is reported as a duplicate.
 - Open for review: whether a formal approval should ever be submitted by the orchestrator
   (`vcs.approve_mode`, default `none`); the squad never merges.

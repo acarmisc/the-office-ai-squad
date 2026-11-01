@@ -20,6 +20,14 @@ from code_squad._common.webhooks import (
 
 BOT = "code-squad-bot"
 SECRET = "fake-webhook-secret-for-tests"
+ALL_EVENTS: tuple[str, ...] = (
+    "change_request_opened",
+    "change_request_updated",
+    "change_request_ready",
+    "review_requested",
+    "comment",
+    "issue_assigned",
+)
 
 
 def _cr(**overrides: Any) -> WebhookEvent:
@@ -42,6 +50,7 @@ def _decide(event: WebhookEvent, **overrides: Any) -> webhooks.TriggerDecision:
         "bot_username": BOT,
         "on_push": True,
         "allowed_commenters": ("alice", "bob"),
+        "events": ALL_EVENTS,
     }
     options.update(overrides)
     return decide_trigger(event, **options)
@@ -101,14 +110,22 @@ def test_signature_checks_use_constant_time_compare(
 # ----- dedupe ----------------------------------------------------------------
 
 
-def test_deduper_reports_repeats_and_evicts_the_oldest() -> None:
+def test_deduper_checks_without_recording() -> None:
+    deduper = DeliveryDeduper()
+    assert deduper.is_recorded("a") is False
+    assert deduper.is_recorded("a") is False
+    deduper.record("a")
+    assert deduper.is_recorded("a") is True
+
+
+def test_deduper_evicts_the_oldest_recorded_id() -> None:
     deduper = DeliveryDeduper(capacity=2)
-    assert deduper.seen("a") is False
-    assert deduper.seen("a") is True
-    assert deduper.seen("b") is False
-    assert deduper.seen("c") is False
-    assert deduper.seen("a") is False
-    assert deduper.seen("c") is True
+    deduper.record("a")
+    deduper.record("b")
+    deduper.record("c")
+    assert deduper.is_recorded("a") is False
+    assert deduper.is_recorded("b") is True
+    assert deduper.is_recorded("c") is True
 
 
 # ----- parsing ---------------------------------------------------------------
@@ -524,3 +541,83 @@ def test_issue_comments_support_implement_and_help_but_not_reviews() -> None:
         "gitlab", "issue", "comment", "acme/web", 9, "bob", body="@code-squad-bot"
     )
     assert _decide(mention).intent == "help"
+
+
+# ----- configurable trigger rules --------------------------------------------
+
+
+def test_wip_titles_are_skipped_only_when_skip_wip_titles_is_on() -> None:
+    wip = _cr(title="WIP: rework")
+    assert _decide(wip, skip_wip_titles=True).run is False
+    assert _decide(wip, skip_wip_titles=False).run is True
+    draft_tag = _cr(title="[draft] thing")
+    assert _decide(draft_tag, skip_wip_titles=False).run is True
+
+
+def test_other_bot_authors_are_skipped_only_when_skip_bot_authors_is_on() -> None:
+    dependabot = _cr(author="dependabot[bot]")
+    decision = _decide(dependabot, skip_bot_authors=True)
+    assert decision.run is False and "another bot" in decision.reason
+    assert _decide(dependabot, skip_bot_authors=False).run is True
+    renovate = _cr(author="renovate-bot")
+    assert _decide(renovate, skip_bot_authors=True).run is False
+    assert _decide(_cr(author="alice"), skip_bot_authors=True).run is True
+
+
+def test_other_bot_comments_are_skipped_only_when_skip_bot_authors_is_on() -> None:
+    comment = WebhookEvent(
+        "github",
+        "comment",
+        "created",
+        "acme/web",
+        42,
+        "release_bot",
+        body="@code-squad-bot review",
+    )
+    assert _decide(comment, allowed_commenters=("release_bot",)).run is False
+    decision = _decide(
+        comment, allowed_commenters=("release_bot",), skip_bot_authors=False
+    )
+    assert (decision.run, decision.intent) == (True, "mr_review")
+
+
+def test_bot_loop_prevention_ignores_the_bot_even_when_skip_bot_authors_is_off() -> (
+    None
+):
+    decision = _decide(_cr(author=BOT), skip_bot_authors=False)
+    assert decision.run is False and "bot itself" in decision.reason
+
+
+def test_events_not_listed_in_trigger_events_are_ignored() -> None:
+    update = _cr(action="synchronize")
+    decision = _decide(update, events=("change_request_opened",))
+    assert decision.run is False
+    assert decision.reason == "event not enabled in trigger.events"
+    assert _decide(update, events=("change_request_updated",)).run is True
+
+
+def test_review_request_needs_review_requested_in_trigger_events() -> None:
+    request = _cr(action="review_requested", reviewers=(BOT,))
+    decision = _decide(request, events=("change_request_opened",), on_push=False)
+    assert decision.reason == "event not enabled in trigger.events"
+    allowed = _decide(request, events=("review_requested",), on_push=False)
+    assert allowed.run is True
+
+
+def test_comments_and_issue_assignments_follow_trigger_events() -> None:
+    comment = WebhookEvent(
+        "github", "comment", "created", "acme/web", 42, "alice", body="/squad sec"
+    )
+    decision = _decide(comment, events=("issue_assigned",))
+    assert decision.reason == "event not enabled in trigger.events"
+    assert _decide(comment, events=("comment",)).run is True
+    issue = WebhookEvent(
+        "github", "issue", "assigned", "acme/web", 9, "alice", assignees=(BOT,)
+    )
+    assert _decide(issue, events=()).reason == "event not enabled in trigger.events"
+    assert _decide(issue, events=("issue_assigned",)).run is True
+
+
+def test_unhandled_actions_keep_their_own_reason_under_any_events() -> None:
+    decision = _decide(_cr(action="closed"), events=())
+    assert decision.run is False and "not handled" in decision.reason

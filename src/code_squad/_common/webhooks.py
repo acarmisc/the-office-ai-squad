@@ -7,15 +7,28 @@ import hmac
 import re
 import threading
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal
+
+from code_squad._common.config.schema import TriggerEvent
 
 Provider = Literal["gitlab", "github"]
 Kind = Literal["change_request", "comment", "issue"]
 Intent = Literal["mr_review", "sec_review", "implement", "help"]
 
 DEFAULT_SKIP_LABELS: Final[tuple[str, ...]] = ("skip-squad",)
+_CHANGE_REQUEST_EVENTS: Final[dict[str, TriggerEvent]] = {
+    "open": "change_request_opened",
+    "opened": "change_request_opened",
+    "reopened": "change_request_opened",
+    "ready_for_review": "change_request_ready",
+    "update": "change_request_updated",
+    "updated": "change_request_updated",
+    "synchronize": "change_request_updated",
+}
+# GitHub apps end in "[bot]"; other bot accounts carry "bot" as a separate token.
+_BOT_LOGIN: Final = re.compile(r"\[bot\]$|(?:^|[-_])bot(?:[-_]|$)")
 _PUSH_ACTIONS: Final = frozenset(
     {
         "open",
@@ -85,22 +98,27 @@ def verify_github(headers: Mapping[str, str], raw_body: bytes, secret: str) -> b
 
 
 class DeliveryDeduper:
-    """Bounded LRU of delivery ids. ``seen`` records the id and reports repeats."""
+    """Bounded LRU of delivery ids that were fully handled.
+
+    Callers check with ``is_recorded`` and call ``record`` only once the delivery was
+    accepted or deliberately ignored, so a failed delivery stays redeliverable.
+    """
 
     def __init__(self, capacity: int = 10_000) -> None:
         self._capacity = capacity
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._lock = threading.Lock()
 
-    def seen(self, delivery_id: str) -> bool:
+    def is_recorded(self, delivery_id: str) -> bool:
         with self._lock:
-            if delivery_id in self._seen:
-                self._seen.move_to_end(delivery_id)
-                return True
+            return delivery_id in self._seen
+
+    def record(self, delivery_id: str) -> None:
+        with self._lock:
             self._seen[delivery_id] = None
+            self._seen.move_to_end(delivery_id)
             if len(self._seen) > self._capacity:
                 self._seen.popitem(last=False)
-            return False
 
 
 def parse_gitlab_event(
@@ -131,98 +149,123 @@ def parse_github_event(
     return None
 
 
+@dataclass(frozen=True)
+class _Policy:
+    on_push: bool
+    allowed: tuple[str, ...]
+    skip_labels: tuple[str, ...]
+    skip_draft: bool
+    skip_wip_titles: bool
+
+
 def decide_trigger(
     event: WebhookEvent,
     *,
     bot_username: str,
     on_push: bool,
     allowed_commenters: Sequence[str],
+    events: Collection[TriggerEvent],
     skip_labels: Sequence[str] = DEFAULT_SKIP_LABELS,
     skip_draft: bool = True,
+    skip_wip_titles: bool = True,
+    skip_bot_authors: bool = True,
 ) -> TriggerDecision:
     bot = bot_username.lower()
     if event.author.lower() == bot:
         return _ignore("event authored by the bot itself")
+    trigger_event = _trigger_event(event, bot)
+    if trigger_event is not None and trigger_event not in events:
+        return _ignore("event not enabled in trigger.events")
+    if skip_bot_authors and _is_other_bot_author(event):
+        return _ignore("change request or comment authored by another bot is skipped")
+    policy = _Policy(
+        on_push=on_push,
+        allowed=tuple(allowed_commenters),
+        skip_labels=tuple(skip_labels),
+        skip_draft=skip_draft,
+        skip_wip_titles=skip_wip_titles,
+    )
     if event.kind == "change_request":
-        return _change_request(event, bot, on_push, skip_labels, skip_draft)
+        return _change_request(event, bot, policy)
     if event.kind == "comment":
-        return _comment(event, bot, allowed_commenters, skip_labels, skip_draft)
-    return _issue(event, bot, allowed_commenters, skip_labels)
+        return _comment(event, bot, policy)
+    return _issue(event, bot, policy)
 
 
-def _change_request(
-    event: WebhookEvent,
-    bot: str,
-    on_push: bool,
-    skip_labels: Sequence[str],
-    skip_draft: bool,
-) -> TriggerDecision:
+def _trigger_event(event: WebhookEvent, bot: str) -> TriggerEvent | None:
+    """The ``trigger.events`` entry for an event, or None when it is not handled."""
+    if event.kind == "comment":
+        return "comment"
+    if event.kind == "issue":
+        if event.action == "comment":
+            return "comment"
+        return "issue_assigned" if event.action in _ISSUE_ASSIGNMENT_ACTIONS else None
+    if _is_review_request(event, bot):
+        return "review_requested"
+    return _CHANGE_REQUEST_EVENTS.get(event.action)
+
+
+def _is_review_request(event: WebhookEvent, bot: str) -> bool:
     involved = bot in _lower(event.reviewers) or bot in _lower(event.assignees)
     newly = bot in _lower(event.newly_requested)
-    if newly or (involved and event.action in _ASSIGNMENT_ACTIONS):
-        skipped = _skip_reason(event, skip_labels, skip_draft)
+    return newly or (involved and event.action in _ASSIGNMENT_ACTIONS)
+
+
+def _is_other_bot_author(event: WebhookEvent) -> bool:
+    if event.kind not in ("change_request", "comment"):
+        return False
+    return _BOT_LOGIN.search(event.author.lower()) is not None
+
+
+def _change_request(event: WebhookEvent, bot: str, policy: _Policy) -> TriggerDecision:
+    if _is_review_request(event, bot):
+        skipped = _skip_reason(event, policy)
         if skipped:
             return _ignore(skipped)
         return TriggerDecision(
             True, "mr_review", "review requested from or assigned to the bot"
         )
     if event.action in _PUSH_ACTIONS:
-        if not on_push:
+        if not policy.on_push:
             return _ignore("push-triggered reviews are disabled for this project")
-        skipped = _skip_reason(event, skip_labels, skip_draft)
+        skipped = _skip_reason(event, policy)
         if skipped:
             return _ignore(skipped)
         return TriggerDecision(True, "mr_review", "change request updated (on_push)")
     return _ignore(f"change request action '{event.action}' is not handled")
 
 
-def _comment(
-    event: WebhookEvent,
-    bot: str,
-    allowed: Sequence[str],
-    skip_labels: Sequence[str],
-    skip_draft: bool,
-) -> TriggerDecision:
-    if event.author.lower() not in _lower(allowed):
+def _comment(event: WebhookEvent, bot: str, policy: _Policy) -> TriggerDecision:
+    if event.author.lower() not in _lower(policy.allowed):
         return _ignore("commenter is not in allowed_commenters")
     intent = _requested_intent(event.body, bot, default="mr_review")
     if intent is None:
         return _ignore("comment has no @mention or /squad command")
-    skipped = _skip_reason(event, skip_labels, skip_draft)
+    skipped = _skip_reason(event, policy)
     if skipped:
         return _ignore(skipped)
     return TriggerDecision(True, intent, f"comment requested {intent}")
 
 
-def _issue(
-    event: WebhookEvent,
-    bot: str,
-    allowed: Sequence[str],
-    skip_labels: Sequence[str],
-) -> TriggerDecision:
+def _issue(event: WebhookEvent, bot: str, policy: _Policy) -> TriggerDecision:
     if event.action == "comment":
-        return _issue_comment(event, bot, allowed, skip_labels)
+        return _issue_comment(event, bot, policy)
     if bot in _lower(event.assignees) and event.action in _ISSUE_ASSIGNMENT_ACTIONS:
-        if _labels_skipped(event.labels, skip_labels):
+        if _labels_skipped(event.labels, policy.skip_labels):
             return _ignore("issue carries a skip label")
         return TriggerDecision(True, "implement", "issue assigned to the bot")
     return _ignore(f"issue action '{event.action}' is not handled")
 
 
-def _issue_comment(
-    event: WebhookEvent,
-    bot: str,
-    allowed: Sequence[str],
-    skip_labels: Sequence[str],
-) -> TriggerDecision:
-    if event.author.lower() not in _lower(allowed):
+def _issue_comment(event: WebhookEvent, bot: str, policy: _Policy) -> TriggerDecision:
+    if event.author.lower() not in _lower(policy.allowed):
         return _ignore("commenter is not in allowed_commenters")
     intent = _requested_intent(event.body, bot, default="help")
     if intent in ("mr_review", "sec_review"):
         return _ignore("review commands apply to change requests, not issues")
     if intent is None:
         return _ignore("comment has no @mention or /squad command")
-    if _labels_skipped(event.labels, skip_labels):
+    if _labels_skipped(event.labels, policy.skip_labels):
         return _ignore("issue carries a skip label")
     return TriggerDecision(True, intent, f"issue comment requested {intent}")
 
@@ -235,14 +278,14 @@ def _requested_intent(body: str, bot: str, *, default: Intent) -> Intent | None:
     return default if mention is not None else None
 
 
-def _skip_reason(
-    event: WebhookEvent, skip_labels: Sequence[str], skip_draft: bool
-) -> str | None:
-    if skip_draft and event.draft:
+def _skip_reason(event: WebhookEvent, policy: _Policy) -> str | None:
+    if policy.skip_draft and event.draft:
         return "draft change request is skipped"
-    if event.title.lower().lstrip().startswith(_WIP_PREFIXES):
+    if policy.skip_wip_titles and event.title.lower().lstrip().startswith(
+        _WIP_PREFIXES
+    ):
         return "WIP or draft title is skipped"
-    if _labels_skipped(event.labels, skip_labels):
+    if _labels_skipped(event.labels, policy.skip_labels):
         return "change request carries a skip label"
     return None
 
