@@ -53,7 +53,17 @@ def test_schema_rejects_an_unknown_kind(runner: CliRunner) -> None:
 
 
 def test_validate_accepts_the_shipped_examples(runner: CliRunner) -> None:
-    result = runner.invoke(app, ["config", "validate", str(ROOT / "examples")])
+    # CI workflow files under examples/gitlab and examples/github are not squad
+    # configuration; tests/test_docs_examples.py validates them.
+    result = runner.invoke(
+        app,
+        [
+            "config",
+            "validate",
+            str(ROOT / "examples" / "org"),
+            str(ROOT / "examples" / "repo"),
+        ],
+    )
     assert result.exit_code == 0, result.output
     assert "ok:" in result.output
 

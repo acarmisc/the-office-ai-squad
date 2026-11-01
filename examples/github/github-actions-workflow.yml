@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+# Calls michael for pull requests. Copy into the consuming repository as
+# .github/workflows/code-squad.yml.
+#
+# The job uses only curl and jq, which GitHub-hosted runners provide, so no third-party action
+# runs with the job's token. If you add an action, pin it to a full commit SHA and keep the
+# release tag in a comment, for example:
+#   uses: actions/checkout@<40-character commit SHA> # v4
+#
+# Repository variables:
+#   SQUAD_URL    base URL of michael, for example https://squad.example.com (required)
+#   SQUAD_POST   "true" lets michael publish its review. Any other value is a dry run.
+# No repository secret is needed: the squad authenticates to GitHub with its own GitHub App.
+# Fork pull requests get no secrets; this job reads only variables, and it never checks out or
+# runs code from the pull request.
+
+name: code-squad-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened, review_requested]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: code-squad-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Request a review from michael
+        env:
+          SQUAD_URL: ${{ vars.SQUAD_URL }}
+          SQUAD_POST: ${{ vars.SQUAD_POST }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          post=false
+          if [ "${SQUAD_POST}" = "true" ]; then post=true; fi
+          body=$(jq -n \
+            --arg prompt "Review change request ${PR_NUMBER} in project ${REPO}." \
+            --arg project "${REPO}" \
+            --arg target "${PR_NUMBER}" \
+            --argjson post "${post}" \
+            '{prompt: $prompt, project: $project, target: $target, mode: "review", post: $post}')
+          curl --silent --show-error --fail-with-body --max-time 2700 \
+            -X POST "${SQUAD_URL}/invocations" \
+            -H 'content-type: application/json' \
+            --data "${body}" \
+            -o squad-result.json
+          jq '{agent, status, verdict, summary, warnings}' squad-result.json
