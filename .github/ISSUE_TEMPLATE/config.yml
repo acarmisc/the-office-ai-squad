@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/acarmisc/the-office-ai-squad/security/advisories/new
+    about: Report privately. Do not open a public issue for a vulnerability.
+  - name: Deployment and troubleshooting guide
+    url: https://github.com/acarmisc/the-office-ai-squad/blob/main/docs/getting-started/troubleshooting.md
+    about: Check the symptom table before you open an issue.
+  - name: Contributing guide
+    url: https://github.com/acarmisc/the-office-ai-squad/blob/main/CONTRIBUTING.md
+    about: How to set up, run the gate and open a pull request.

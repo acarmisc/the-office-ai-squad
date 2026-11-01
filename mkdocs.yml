@@ -9,6 +9,8 @@ plugins:
   - search
 markdown_extensions:
   - admonition
+  - attr_list
+  - md_in_html
   - tables
   - toc:
       permalink: true
@@ -19,12 +21,17 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format
 nav:
   - Home: index.md
+  - Getting started:
+      - Local demo (5 minutes): getting-started/local-demo.md
+      - Deploy to Kubernetes (15 minutes): getting-started/deploy-to-kubernetes.md
+      - Troubleshooting: getting-started/troubleshooting.md
   - FAQ: faq.md
   - Architecture:
       - Overview: architecture/overview.md
       - Review sequence: architecture/review-sequence.md
       - pam sequence: architecture/pam-sequence.md
       - Config layering: architecture/config-layering.md
+      - Request lifecycle inside one agent: architecture/agent-lifecycle.md
       - HTTP contract and findings: architecture/contract.md
   - Agents:
       - michael (orchestrator): agents/michael.md
@@ -59,6 +66,7 @@ nav:
       - Ingress and webhooks: deployment/ingress-webhooks.md
       - Scaling and upgrades: deployment/scaling-upgrades.md
       - Local environments: deployment/local.md
+      - Images, charts and releases: deployment/images-and-releases.md
       - Local validation record: deployment/local-validation.md
   - Operations:
       - Runbook: operations/runbook.md
@@ -68,7 +76,11 @@ nav:
       - Prompt injection: security/prompt-injection.md
       - Hardening: security/hardening.md
   - Testing: testing/index.md
-  - Contributing: contributing/index.md
+  - Contributing:
+      - Overview: contributing/index.md
+      - Architecture tour: contributing/tour.md
+      - Your first change: contributing/first-change.md
+      - Running and debugging: contributing/running-and-debugging.md
   - Decisions:
       - Index: decisions/index.md
       - 0001 Stack: decisions/0001-stack.md

@@ -1,0 +1,39 @@
+name: Feature request
+description: A new capability, agent behaviour or configuration option
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you need to do that you cannot do today, and why it matters to a team.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: The behaviour you would like. A configuration key, a tool or an agent change is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Does it change a security control?
+      description: Dry run, tool classes, the posting gate, configuration layers, untrusted content, secrets, the API token or the network policy.
+      options:
+        - "No"
+        - "Yes, or I am not sure"
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this.
+        - label: I understand that a change to a security control needs an ADR before code.

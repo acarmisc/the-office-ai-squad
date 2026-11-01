@@ -64,6 +64,7 @@ def render(data: Mapping[str, Any], wall_seconds: float | None) -> str:
     ]
     if wall_seconds is not None:
         lines.append(f"wall:     {wall_seconds:.1f} s")
+    lines.extend(_finding_lines(findings))
     warnings = data.get("warnings")
     lines.append("warnings:")
     if isinstance(warnings, list) and warnings:
@@ -71,6 +72,24 @@ def render(data: Mapping[str, Any], wall_seconds: float | None) -> str:
     else:
         lines.append("  none")
     return "\n".join(lines)
+
+
+_MAX_LISTED = 20
+
+
+def _finding_lines(findings: Sequence[Mapping[str, Any]]) -> list[str]:
+    if not findings:
+        return []
+    lines = ["top findings:"]
+    for item in findings[:_MAX_LISTED]:
+        where = f"{item.get('file')}:{item.get('line_start')}"
+        lines.append(
+            f"  - [{item.get('severity')}/{item.get('confidence')}] "
+            f"{item.get('agent')} {item.get('rule_id')} {where} {item.get('title')}"
+        )
+    if len(findings) > _MAX_LISTED:
+        lines.append(f"  ... {len(findings) - _MAX_LISTED} more in the JSON result")
+    return lines
 
 
 def _mapping(value: object) -> dict[str, Any]:

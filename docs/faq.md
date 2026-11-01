@@ -97,4 +97,4 @@ No. The squad is a self-hosted platform, deployed with the Helm chart or Docker 
 
 ### How do I report a security problem?
 
-Follow the [reporting process](security/hardening.md#reporting-a-vulnerability). Do not open a public issue or change request for it.
+Use GitHub's private vulnerability reporting, as described in [SECURITY.md](https://github.com/acarmisc/the-office-ai-squad/blob/main/SECURITY.md). Do not open a public issue or change request for it.

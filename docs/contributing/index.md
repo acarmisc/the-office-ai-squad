@@ -4,6 +4,16 @@ This page covers the working rules of the repository and the four changes a cont
 VCS provider and a knowledge pack. It also covers the decision record process and releases. The agent-level conventions are in
 `AGENTS.md` at the repository root; this page expands them.
 
+New here? Read [the architecture tour](tour.md) for where things live, then [your first change](first-change.md) for a
+walkthrough that ends with a passing gate. [Running and debugging](running-and-debugging.md) shows how to run one agent against the
+fake model. The short version of these rules is in [CONTRIBUTING.md](https://github.com/acarmisc/the-office-ai-squad/blob/main/CONTRIBUTING.md).
+
+<figure markdown>
+![A scripted review run in the terminal](../assets/demos/review.svg)
+<figcaption>An offline review you can run yourself with <code>uv run python -m scripts.demo_review</code>.
+Recording: <a href="../assets/casts/review.cast">review.cast</a>. Play it locally with <code>asciinema play docs/assets/casts/review.cast</code>.</figcaption>
+</figure>
+
 ## Working rules
 
 - Read `docs/BRIEF.md` (the build brief), `STATUS.md` (current state) and `AGENTS.md` before a change.
@@ -103,23 +113,32 @@ An ADR does not change an accepted decision silently. Write a new ADR that super
 
 ## Release and versioning
 
-- **Versions.** The package version is in `pyproject.toml` and `src/code_squad/__init__.py`. The chart has `version` and `appVersion`
-  in `deploy/helm/code-squad/Chart.yaml`. Keep the application version and `appVersion` equal for a release.
-- **Image tags.** The default image tag is the short commit sha, and a release also gets its semantic version.
-- **Bumping.** `scripts/bump_image.py` sets `version` and `appVersion` in `Chart.yaml` and `image.tag` in `values.yaml`:
+Releases are cut from a tag and published by `.github/workflows/release.yml`. The full description, including the artifacts and their
+tags, is in [Images, charts and releases](../deployment/images-and-releases.md). The steps for a maintainer:
 
-  ```bash
-  uv run python scripts/bump_image.py --version 0.2.0 --tag 0.2.0 --dry-run
-  uv run python scripts/bump_image.py --version 0.2.0 --tag 0.2.0
-  ```
+1. Set the version to `X.Y.Z` in two places: `version` in `pyproject.toml` and `__version__` in `src/code_squad/__init__.py`. Both must
+   equal the tag without the `v`.
+2. Bump the chart. Leave out `--tag` so `image.tag` stays empty and follows `appVersion`:
 
-  The script edits lines, so the comments in both files survive. `--dry-run` prints the diff and writes nothing.
-- **Changelog.** Add an entry to `CHANGELOG.md` under the new version, with the user-visible changes and any change of behaviour or
-  configuration default.
-- **Checks before a release.** `just check` green; the Docker build for both architectures (`just build`, which uses buildx); the Helm
-  lint for the default and example values; the smoke test on compose; a dry-run review on a test change request.
-- **Tag and publish.** Tag the commit, push the image, and update the chart version in the deployment repository. The CI deploy job is
-  manual and only prints the command today.
+   ```bash
+   uv run python scripts/bump_image.py --version X.Y.Z --dry-run
+   uv run python scripts/bump_image.py --version X.Y.Z
+   ```
+
+   The script sets `version` and `appVersion` in `deploy/helm/code-squad/Chart.yaml`. It edits lines, so comments survive.
+3. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`. The release notes are taken from that section.
+4. Run `just check`, merge to `main`, then tag the merge commit as `vX.Y.Z` and push the tag:
+
+   ```bash
+   git tag -a vX.Y.Z -m "code-squad X.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+The `verify` job of the release workflow fails before anything is published when the tag and the versions in those files disagree. A
+pre-release tag such as `vX.Y.Z-rc.1` publishes the images and the chart but does not move `latest`.
+
+Contributors do not release. Do not edit `image.tag`, `appVersion` or the image names by hand; the bump script and the release workflow
+own them.
 
 ## Documentation
 

@@ -9,7 +9,8 @@ The record of what was run and what failed in the last validation of these artif
 
 ## One agent, no containers
 
-Requires `uv` and Python 3.12.
+Requires `uv` and Python 3.12. `just invoke` also needs `jq`. For a shorter route that needs only `uv`, see
+[Local demo](../getting-started/local-demo.md).
 
 ```bash
 uv sync

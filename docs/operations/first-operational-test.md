@@ -25,7 +25,7 @@ the defects that were fixed before this test and the items that are deferred unt
 - **A bot identity** with the smallest scopes that work:
   - GitLab: a project access token for a dedicated bot, role Developer, scopes `api` and `read_repository`. Do not add
     `write_repository`, because pam is off. See [GitLab](../vcs/gitlab.md#the-bot-identity) and
-    and `examples/gitlab/token-scopes.md` in the repository.
+    `examples/gitlab/token-scopes.md` in the repository.
   - GitHub: a GitHub App installed on the trial repository only, with the permissions in
     [GitHub](../vcs/github.md#create-the-app). Set Contents to read, because pam is off. Keep the App's bot login,
     `<app slug>[bot]`, for `vcs.bot_username`.
@@ -47,7 +47,7 @@ kubectl create namespace code-squad
 kubectl -n code-squad create secret generic code-squad-secrets \
   --from-literal=llm-api-key="$LLM_KEY" \
   --from-literal=gitlab-token="$GITLAB_BOT_TOKEN"
-kubectl -n code-squad create secret generic squad-api \
+kubectl -n code-squad create secret generic code-squad-api \
   --from-literal=api-token="$(openssl rand -hex 32)"
 ```
 
@@ -112,7 +112,7 @@ first post.
 ### 6. Dry run
 
 ```bash
-export SQUAD_API_TOKEN="$(kubectl -n code-squad get secret squad-api -o jsonpath='{.data.api-token}' | base64 -d)"
+export SQUAD_API_TOKEN="$(kubectl -n code-squad get secret code-squad-api -o jsonpath='{.data.api-token}' | base64 -d)"
 scripts/trial_review.sh http://localhost:8080 platform/example-app 123
 ```
 

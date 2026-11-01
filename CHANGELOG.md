@@ -3,6 +3,26 @@
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [semantic versioning](https://semver.org/) for the application and the chart.
 
+## Unreleased — documentation and contributor kit
+
+### Added
+
+- **Getting started.** Local demo (no containers, or Docker Compose), a 15-minute Kubernetes deployment guide that installs the
+  released chart with a validated minimal values file, and a symptom-to-fix troubleshooting table.
+- **Contributing.** Root `CONTRIBUTING.md`, `SECURITY.md` (private advisories), `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1 by
+  reference), a pull request template, and issue templates for bugs and feature requests. Architecture tour, a first-change walkthrough
+  and a running-and-debugging guide.
+- **Diagrams.** Request lifecycle inside one agent, tighten-only resolution of a configuration key, NetworkPolicy topology and the
+  onboarding flow, all in Mermaid and checked with the parser.
+- **Demos.** `scripts/record_demos.py` runs the project's own commands and writes asciinema v2 casts and self-contained animated SVG
+  terminals under `docs/assets/`. `just demos` re-records them. `scripts/demo_review.py` runs one offline dry-run review.
+
+### Changed
+
+- The README has badges, the agent table, an embedded demo and quick-start and deploy snippets.
+- The Helm example in the deployment page sets `api.tokenSecret`, so the install does not fail closed.
+- The reporting process in the hardening page points to `SECURITY.md`.
+
 ## Unreleased — operational readiness
 
 Decision record: [ADR 0013](docs/decisions/0013-operational-readiness.md). Fixes from the adversarial review, applied before the

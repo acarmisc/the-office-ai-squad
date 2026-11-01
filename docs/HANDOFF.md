@@ -50,7 +50,7 @@ in [First operational test](operations/first-operational-test.md).
 Results are recorded as they were observed.
 
 - **Gate, after ADR 0013.** `just check` passed: `ruff check` and `ruff format --check`, `mypy src tests scripts eval deploy` (267 files), the full
-  pytest suite (1817 passed), `gen_schemas.py --check`, `gen_docs.py --check`, `mkdocs build --strict`, `helm lint` with `kubeconform` for the
+  pytest suite (1851+ passed), `gen_schemas.py --check`, `gen_docs.py --check`, `mkdocs build --strict`, `helm lint` with `kubeconform` for the
   default and every example values file, the prompt checks and the secret scan (0 findings).
 - **Compose smoke, after ADR 0013.** Built with the CA-trusting base image, all six agents passed `scripts/smoke_test.sh compose`. See
   [Local validation](deployment/local-validation.md#re-run-after-adr-0013-operational-readiness).

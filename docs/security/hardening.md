@@ -137,7 +137,8 @@ listed in the [handoff](../HANDOFF.md#known-limitations).
 
 ## Reporting a vulnerability
 
-Report a suspected vulnerability privately to the platform team that owns this repository, not in a public issue or change
-request. Include the version or commit, the configuration that matters (with secrets removed), the steps to reproduce, and
+Report a suspected vulnerability privately, not in a public issue or change request. The preferred channel is GitHub's
+private vulnerability reporting, described in [SECURITY.md](https://github.com/acarmisc/the-office-ai-squad/blob/main/SECURITY.md).
+If that is not possible, contact the platform team that owns this deployment. Include the version or commit, the configuration that matters (with secrets removed), the steps to reproduce, and
 the expected and actual behaviour. Do not include real tokens or customer data in the report. The team acknowledges a report,
 assesses it against the threat model, and records the decision in an ADR when the fix changes a control.

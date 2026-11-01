@@ -1,5 +1,12 @@
 # Testing
 
+<figure markdown>
+![The gate run step by step: lint, format, mypy, pytest, the docs drift check and the strict docs build](../assets/demos/gate.svg)
+<figcaption>Summary lines from each step of <code>just check</code>, recorded from the real commands by
+<code>scripts/record_demos.py</code>. The transcript is <a href="../assets/casts/gate.cast">gate.cast</a>; play it with
+<code>asciinema play docs/assets/casts/gate.cast</code>. The Helm and secret-scan steps are not in the recording.</figcaption>
+</figure>
+
 The default gate is deterministic and offline. No test calls a model, a VCS host or a cluster. Models are replaced by a
 scripted model, VCS hosts by an in-memory fake or by recorded HTTP responses, and Kubernetes by a fake client. Live
 evaluation is a separate, opt-in run.
@@ -28,7 +35,7 @@ secret scan. The same commands run in `.gitlab-ci.yml` and `.github/workflows/ci
 | Unit | `tests/config`, `tests/skills`, `tests/sandbox`, `tests/dwight`, `tests/darryl`, `tests/pam`, `tests/michael`, `tests/vcs` | Rules: merge and tighten-only, skill precedence, command allow-list, redaction, guard behaviour, routing, verdicts |
 | Integration | `tests/test_server.py`, `tests/test_runtime.py`, `tests/agents`, `tests/pam/test_workflow.py` | Whole runs through the runtime with a scripted model and a fake VCS |
 | Contract | `tests/test_contract.py`, `tests/test_validation.py`, `tests/test_schemas_sync.py` | Payload strictness, finding rules, and that committed schemas match the models |
-| Documentation | `tests/test_docs_examples.py`, `tests/test_gen_docs.py`, `tests/test_catalog.py`, `tests/test_examples.py` | Every validated doc block and every example is valid; reference pages match the code; the catalogue lists every agent |
+| Documentation | `tests/test_docs_examples.py`, `tests/test_gen_docs.py`, `tests/test_catalog.py`, `tests/test_examples.py`, `tests/test_demos.py` | Every validated doc block and every example is valid; reference pages match the code; the catalogue lists every agent; the demo renderers and the committed demo files are valid |
 | Eval harness | `tests/test_eval_scorers.py`, `tests/test_fake_llm.py` | The scorers and the fake LLM work |
 
 ## The fake model

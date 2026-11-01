@@ -76,3 +76,9 @@ compose-smoke:
 
 eval *args:
     uv run python -m eval.run {{args}}
+
+# Re-record the demo transcripts (docs/assets/casts) and animations (docs/assets/demos).
+# Skips the compose smoke demo when the compose stack is not running.
+demos *args:
+    uv run python scripts/record_demos.py {{args}}
+    uv run pytest -q tests/test_demos.py -o addopts=

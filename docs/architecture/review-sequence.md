@@ -16,7 +16,7 @@ sequenceDiagram
   participant SP as Specialists (jim, angela, dwight, darryl)
   participant PUB as Publication (michael)
 
-  GL->>GW: POST /webhooks/<provider> (signed delivery)
+  GL->>GW: POST /webhooks/{provider} (signed delivery)
   GW->>GW: verify signature (401 when invalid)
   GW->>GW: parse event, de-duplicate delivery id (200 duplicate)
   GW->>GW: effective configuration (503 when invalid)
@@ -26,7 +26,7 @@ sequenceDiagram
   GW->>ORC: background job (review intent)
   ORC->>VCS: change request, diff at head sha
   ORC->>VCS: manifests at head sha (package.json, pom.xml, ...)
-  ORC->>ORC: route by changed files and stack; risk tier from size, paths, deps, secrets
+  ORC->>ORC: route by changed files and stack, risk tier from size, paths, deps, secrets
   par per specialist, bounded concurrency
     ORC->>SP: POST /invocations (post false, idempotency key, traceparent)
     SP->>VCS: read context, files, skills (read only)

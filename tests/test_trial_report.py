@@ -87,3 +87,20 @@ def test_main_rejects_bad_arguments_and_bad_json(tmp_path: Path) -> None:
     broken = tmp_path / "broken.json"
     broken.write_text("not json", encoding="utf-8")
     assert main([str(broken)]) == 1
+
+
+def test_render_lists_top_findings() -> None:
+    from scripts.trial_report import render
+
+    finding = {
+        "severity": "major",
+        "confidence": "high",
+        "agent": "jim",
+        "rule_id": "REACT-HOOKS-001",
+        "file": "src/App.tsx",
+        "line_start": 12,
+        "title": "Effect without cleanup",
+    }
+    text = render({"agent": "michael", "findings": [finding]}, None)
+    assert "top findings:" in text
+    assert "REACT-HOOKS-001 src/App.tsx:12 Effect without cleanup" in text

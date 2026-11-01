@@ -5,6 +5,12 @@ requires a code change or an image rebuild. This page explains how the pieces fi
 is the [configuration reference](../reference/configuration.md), generated from the schema. The layer
 diagram is on [Configuration layering](../architecture/config-layering.md).
 
+<figure markdown>
+![Validation and an explanation of one project's effective configuration in the terminal](../assets/demos/config.svg)
+<figcaption>A recording of <code>squad config validate</code> and <code>squad config explain</code> on the example files. The transcript
+is <a href="../assets/casts/config.cast">config.cast</a>. Play it locally with <code>asciinema play docs/assets/casts/config.cast</code>.</figcaption>
+</figure>
+
 ## The files
 
 | File | Owner | Where it lives | Purpose |

@@ -89,11 +89,33 @@ def validate_file(path: Path, *, kind: str | None = None) -> ValidationReport:
     return report
 
 
+_SQUAD_SCHEMA_HINTS = ("squad-config.schema.json", "projects.schema.json")
+
+
+def _is_squad_file(path: Path) -> bool:
+    """Directory scans keep only files that look like squad configuration.
+
+    Other YAML (CI workflows, Helm values, manifests) shares directories such as
+    ``examples/`` and must not fail validation. Explicit file arguments are always
+    validated.
+    """
+    if path.name == "squad.yaml" or path.name.startswith("projects"):
+        return True
+    if path.parent.name in ("profiles", ".squad"):
+        return True
+    try:
+        head = path.read_text(encoding="utf-8")[:512]
+    except OSError:
+        return False
+    return any(hint in head for hint in _SQUAD_SCHEMA_HINTS)
+
+
 def expand_paths(paths: Iterable[Path]) -> list[Path]:
     found: list[Path] = []
     for path in paths:
         if path.is_dir():
-            found.extend(sorted([*path.rglob("*.yaml"), *path.rglob("*.yml")]))
+            candidates = sorted([*path.rglob("*.yaml"), *path.rglob("*.yml")])
+            found.extend(c for c in candidates if _is_squad_file(c))
         else:
             found.append(path)
     return found

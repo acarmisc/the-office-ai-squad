@@ -249,3 +249,14 @@ def test_review_is_an_alias_for_michael(
 def test_review_requires_a_project(runner: CliRunner) -> None:
     result = runner.invoke(app, ["review", "42"])
     assert result.exit_code != 0
+
+
+def test_validate_directory_skips_non_squad_yaml(tmp_path: Path) -> None:
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "ci.yml").write_text("on: push\njobs: {}\n", "utf-8")
+    (tmp_path / ".squad").mkdir()
+    (tmp_path / ".squad" / "config.yml").write_text("review: {}\n", "utf-8")
+    result = CliRunner().invoke(app, ["config", "validate", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "ci.yml" not in result.output
+    assert "config.yml" in result.output

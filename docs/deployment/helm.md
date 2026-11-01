@@ -34,6 +34,10 @@ installing.
 
 ## Install
 
+For a first install, follow the step-by-step [Deploy to Kubernetes](../getting-started/deploy-to-kubernetes.md) guide. Release
+artifacts, tags and digests are in [Images, charts and releases](images-and-releases.md). It starts from a
+minimal values file in dry-run mode, creates the secrets and verifies the install. The commands below are the general form.
+
 ```bash
 kubectl create namespace code-squad
 kubectl create namespace code-squad-sandbox
@@ -133,6 +137,10 @@ webhooks:
     enabled: true
   github:
     enabled: true
+api:
+  tokenSecret:
+    name: code-squad-api
+    key: api-token
 ingress:
   enabled: true
   className: nginx

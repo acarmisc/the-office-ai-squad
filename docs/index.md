@@ -85,6 +85,11 @@ for the base-image step.
 
 ## Where to go next
 
+New to the project? Start with [Local demo](getting-started/local-demo.md) (five minutes, no account needed), then
+[Deploy to Kubernetes](getting-started/deploy-to-kubernetes.md). When something fails, [Troubleshooting](getting-started/troubleshooting.md)
+maps the symptom to the cause.
+
+
 | You are | Start with |
 | --- | --- |
 | Deciding whether to adopt it | [Architecture overview](architecture/overview.md), [Security threat model](security/threat-model.md) |
@@ -92,6 +97,7 @@ for the base-image step.
 | Configuring behaviour | [Configuration concepts](configuration/concepts.md), [Recipes](configuration/recipes.md), [Configuration reference](reference/configuration.md) |
 | Installing on Kubernetes | [Helm values](deployment/helm.md), [Secrets](deployment/secrets.md), [Network and egress](deployment/network-and-egress.md) |
 | Connecting GitLab or GitHub | [GitLab](vcs/gitlab.md), [GitHub](vcs/github.md) |
-| Running it | [Operations runbook](operations/runbook.md), [FAQ](faq.md) |
+| Running it | [Operations runbook](operations/runbook.md), [FAQ](faq.md), [Troubleshooting](getting-started/troubleshooting.md) |
+| Contributing code | [Contributing](contributing/index.md), [Architecture tour](contributing/tour.md), [Your first change](contributing/first-change.md) |
 | Changing the code | [Contributing](contributing/index.md), [Testing](testing/index.md), [Decisions](decisions/index.md) |
 | Picking up the project cold | [Handoff](HANDOFF.md), [Build brief](BRIEF.md) |

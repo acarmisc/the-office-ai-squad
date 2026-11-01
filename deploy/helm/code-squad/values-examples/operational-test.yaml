@@ -31,14 +31,14 @@ vcs:
 
 secrets:
   # One Secret holding llm-api-key, the VCS token (gitlab-token or the GitHub App key)
-  # and squad-api's api-token. See deploy/secrets-examples.
+  # and code-squad-api's api-token. See deploy/secrets-examples.
   existingSecret: code-squad-secrets
 
 api:
   # Bearer token for POST /invocations and GET /jobs/{id}. Create the Secret first; the
   # agents refuse requests without it.
   tokenSecret:
-    name: squad-api
+    name: code-squad-api
     key: api-token
   # Stays false: the trial runs with the token.
   allowUnauthenticated: false
