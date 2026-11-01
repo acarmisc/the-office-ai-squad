@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+import threading
+from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
+import openai
 from strands import Agent
 from strands.models.model import Model
+from strands.types.agent import Limits
 from strands.types.event_loop import StopReason
-from strands.types.exceptions import MaxTokensReachedException
+from strands.types.exceptions import MaxTokensReachedException, ModelThrottledException
 
 from code_squad._common.common_tools import MAX_INVALID_FINISH
 from code_squad._common.context import InvocationContext, current, use_context
@@ -18,7 +21,12 @@ from code_squad._common.contract import (
     Stats,
     Verdict,
 )
-from code_squad._common.model import ModelFactory, get_model_factory, litellm_tags
+from code_squad._common.model import (
+    ModelFactory,
+    dropped_caller_tags,
+    get_model_factory,
+    litellm_tags,
+)
 from code_squad._common.policy_hook import IterationCounterHook, ToolPolicyHook
 from code_squad._common.posting import PostingGate
 from code_squad._common.skills.loader import skillset_from_payload
@@ -42,6 +50,18 @@ _INCOMPLETE_SUMMARY: Final = (
     "Run incomplete: no finish() result was produced. This is not a clean result."
 )
 _FAILED_SUMMARY: Final = "Run failed before a result was produced."
+DEFAULT_MAX_RUN_TOKENS: Final = 400_000
+FALLBACK_WARNING: Final = (
+    "fallback model used after the primary model was overloaded; "
+    "the run was retried once"
+)
+WALL_CLOCK_REASON: Final = (
+    "wall-clock budget exceeded: the run was cancelled; result is incomplete"
+)
+TOKEN_CEILING_REASON: Final = (
+    "token ceiling reached (limits.max_run_tokens): result is incomplete"
+)
+_NO_RETRY_STOPS: Final = frozenset({"limit_turns", "limit_total_tokens", "cancelled"})
 
 
 def create_agent(
@@ -72,21 +92,106 @@ def run_task(
     model_factory: ModelFactory | None = None,
     post_override: bool | None = None,
 ) -> InvocationResult:
+    merged = _services_with_skills(services, request, spec.name)
     ctx = InvocationContext(
         agent=spec.name,
         request=request,
         gate=_gate(request, post_override),
-        services=_services_with_skills(services, request, spec.name),
+        services=merged,
+        tool_call_budget=_agent_budget(merged, spec.name, "tool_calls"),
+        max_run_tokens=_token_ceiling(merged, spec.name),
     )
+    clock = _WallClock(_agent_budget(merged, spec.name, "wall_clock_seconds"), ctx)
     factory = model_factory or get_model_factory()
     with use_context(ctx):
+        clock.start()
         try:
-            return _run(spec, request, ctx, factory)
+            return _run(spec, request, ctx, factory, clock)
         except Exception as exc:
             ctx.warnings.append(f"model call failed: {type(exc).__name__}")
             return _result(
                 spec, ctx, RunStatus.FAILED, Verdict.INCOMPLETE, _FAILED_SUMMARY
             )
+        finally:
+            clock.stop()
+
+
+class _WallClock:
+    """Cancels the running agent when the wall-clock budget expires."""
+
+    def __init__(self, seconds: int | None, ctx: InvocationContext) -> None:
+        self._ctx = ctx
+        self._lock = threading.Lock()
+        self._agent: Agent | None = None
+        self._timer: threading.Timer | None = None
+        if seconds is not None:
+            self._timer = threading.Timer(float(seconds), self._expire)
+            self._timer.daemon = True
+
+    def start(self) -> None:
+        if self._timer is not None:
+            self._timer.start()
+
+    def stop(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+
+    def bind(self, agent: Agent) -> None:
+        with self._lock:
+            self._agent = agent
+            if self._ctx.budget_stop is not None:
+                agent.cancel()
+
+    def unbind(self) -> None:
+        with self._lock:
+            self._agent = None
+
+    def _expire(self) -> None:
+        with self._lock:
+            if self._ctx.budget_stop is None:
+                self._ctx.budget_stop = WALL_CLOCK_REASON
+            if self._agent is not None:
+                self._agent.cancel()
+
+
+def _config(services: Mapping[str, Any] | None) -> Any:
+    if services is None:
+        return None
+    return getattr(services.get("config"), "config", None)
+
+
+def _agent_budget(
+    services: Mapping[str, Any] | None, agent: str, field: str
+) -> int | None:
+    agents = getattr(_config(services), "agents", None)
+    if not isinstance(agents, Mapping):
+        return None
+    budgets = getattr(agents.get(agent), "budgets", None)
+    return _positive(getattr(budgets, field, None))
+
+
+def _token_ceiling(services: Mapping[str, Any] | None, agent: str) -> int:
+    limits = getattr(_config(services), "limits", None)
+    ceiling = _positive(getattr(limits, "max_run_tokens", None)) or (
+        DEFAULT_MAX_RUN_TOKENS
+    )
+    per_agent = _agent_budget(services, agent, "tokens")
+    return min(ceiling, per_agent) if per_agent is not None else ceiling
+
+
+def _positive(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def _is_overload(exc: BaseException) -> bool:
+    """Gateway throttling or a server error: the only failures a fallback retries."""
+    if isinstance(exc, ModelThrottledException):
+        return True
+    if isinstance(exc, openai.APIStatusError):
+        return exc.status_code == 429 or exc.status_code >= 500
+    return False
 
 
 def _gate(request: InvocationRequest, post_override: bool | None) -> PostingGate:
@@ -100,13 +205,13 @@ def _run(
     request: InvocationRequest,
     ctx: InvocationContext,
     factory: ModelFactory,
+    clock: _WallClock,
 ) -> InvocationResult:
     model_id = request.model or spec.model_id
     tags = litellm_tags(spec.name, request.project, request.litellm_tags)
+    ctx.warnings.extend(_tag_warnings(request.litellm_tags))
     prompt = _task_prompt(spec, request)
-    stop = _attempt(
-        spec, ctx, factory(model_id, spec.max_tokens, spec.temperature, tags), prompt
-    )
+    stop = _first_attempt(spec, ctx, factory, model_id, tags, prompt, clock)
     instruction = _retry_instruction(stop, ctx)
     if instruction is not None:
         retry_id = (
@@ -115,8 +220,36 @@ def _run(
             else model_id
         )
         retry_model = factory(retry_id, spec.max_tokens, spec.temperature, tags)
-        stop = _attempt(spec, ctx, retry_model, f"{prompt}\n\n{instruction}")
+        stop = _attempt(spec, ctx, retry_model, f"{prompt}\n\n{instruction}", clock)
     return _guarded(ctx, _finalize(spec, ctx, stop))
+
+
+def _tag_warnings(extra: Sequence[str]) -> list[str]:
+    return [
+        f"caller litellm tag in reserved namespace '{namespace}:' was dropped"
+        for namespace in dropped_caller_tags(extra)
+    ]
+
+
+def _first_attempt(
+    spec: AgentSpec,
+    ctx: InvocationContext,
+    factory: ModelFactory,
+    model_id: str,
+    tags: list[str],
+    prompt: str,
+    clock: _WallClock,
+) -> StopReason:
+    try:
+        model = factory(model_id, spec.max_tokens, spec.temperature, tags)
+        return _attempt(spec, ctx, model, prompt, clock)
+    except Exception as exc:
+        fallback = spec.retry_model_id
+        if fallback is None or not _is_overload(exc) or ctx.finish_result is not None:
+            raise
+    ctx.warnings.append(FALLBACK_WARNING)
+    model = factory(fallback, spec.max_tokens, spec.temperature, tags)
+    return _attempt(spec, ctx, model, prompt, clock)
 
 
 def _guarded(ctx: InvocationContext, result: InvocationResult) -> InvocationResult:
@@ -152,23 +285,42 @@ def _task_prompt(spec: AgentSpec, request: InvocationRequest) -> str:
 
 
 def _attempt(
-    spec: AgentSpec, ctx: InvocationContext, model: Model, prompt: str
+    spec: AgentSpec,
+    ctx: InvocationContext,
+    model: Model,
+    prompt: str,
+    clock: _WallClock,
 ) -> StopReason:
+    limits: Limits = {"turns": spec.max_iterations}
+    remaining = _remaining_tokens(ctx)
+    if remaining is not None:
+        if remaining <= 0:
+            return "limit_total_tokens"
+        limits["total_tokens"] = remaining
     agent = create_agent(spec, model)
+    clock.bind(agent)
     try:
-        return agent(prompt, limits={"turns": spec.max_iterations}).stop_reason
+        return agent(prompt, limits=limits).stop_reason
     except MaxTokensReachedException:
         return "max_tokens"
     finally:
+        clock.unbind()
         usage = agent.event_loop_metrics.accumulated_usage
         ctx.input_tokens += usage["inputTokens"]
         ctx.output_tokens += usage["outputTokens"]
 
 
-def _retry_instruction(stop: StopReason, ctx: InvocationContext) -> str | None:
-    if ctx.finish_result is not None or stop == "limit_turns":
+def _remaining_tokens(ctx: InvocationContext) -> int | None:
+    if ctx.max_run_tokens is None:
         return None
-    if ctx.invalid_finish_attempts >= MAX_INVALID_FINISH:
+    used = ctx.input_tokens + ctx.output_tokens
+    return max(ctx.max_run_tokens - used, 0)
+
+
+def _retry_instruction(stop: StopReason, ctx: InvocationContext) -> str | None:
+    if ctx.finish_result is not None or stop in _NO_RETRY_STOPS:
+        return None
+    if ctx.budget_stop is not None or ctx.invalid_finish_attempts >= MAX_INVALID_FINISH:
         return None
     return _TRUNCATED if stop == "max_tokens" else _MISSING_FINISH
 
@@ -195,8 +347,12 @@ def _finalize(
 
 
 def _incomplete_reason(stop: StopReason, ctx: InvocationContext) -> str:
+    if ctx.budget_stop is not None:
+        return ctx.budget_stop
     if ctx.invalid_finish_attempts >= MAX_INVALID_FINISH:
         return "finish() was rejected twice; no result was produced"
+    if stop == "limit_total_tokens":
+        return TOKEN_CEILING_REASON
     if stop == "limit_turns":
         return "iteration limit reached before finish(); result is incomplete"
     return f"run ended with stop reason '{stop}' without finish(); result is incomplete"

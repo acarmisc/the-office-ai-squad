@@ -19,8 +19,6 @@ vcs:
     token_secret: null
   # Login of the bot account, used to ignore its own comments.
   bot_username: null
-  # check_run | commit_status | auto. Auto prefers check runs, then commit statuses.
-  status_mode: auto
   # Commit status or check name. {agent} becomes the agent id.
   status_context_template: "ai-review/{agent}"
   # none | comment | approve. Tighten-only: a repository may not set it more loosely.
@@ -45,14 +43,16 @@ trigger:
   # Users whose comments may trigger the squad. Empty means nobody.
   # Repositories may only narrow this list.
   allowed_commenters: []
-  # Comment commands, without the slash: /squad review, /squad sec, and so on.
-  slash_commands: [review, sec, implement, help]
+  # Users who may assign an issue to the bot to start a pam run. Empty means nobody.
+  # Repositories may only narrow this list.
+  allowed_assigners: []
   # Quiet period (seconds) that merges a burst of events into one run.
   debounce_seconds: 30
   skip_draft: true
   skip_labels: [skip-squad]
   skip_wip_titles: true
-  skip_bot_authors: true
+  # Other bots' change requests and comments. The bot's own events are always ignored.
+  skip_bot_authors: false
 
 # Per-agent settings, keyed by agent id. Agents not listed use their built-in defaults.
 agents:
@@ -60,25 +60,21 @@ agents:
     enabled: true
     # Model aliases are resolved by the LiteLLM gateway.
     model: sonnet-5-5
+    # Used once after a truncation or a gateway overload (429 or 5xx).
     fallback_model: haiku-5-5
     temperature: 0.2
     max_iterations: 30
-    # Each budget is capped by the matching limits.* value.
+    # Each budget is capped by the matching limits.* value. Repositories may only lower
+    # them.
     budgets:
-      tokens: 150000
       wall_clock_seconds: 900
       tool_calls: 120
-      cost_hint_usd: 2.5
     # Extra guidance appended to the prompt; untrusted and length-capped.
     prompt_extra: null
     # Org-only: additional knowledge directories readable by this agent.
     knowledge_extra_dirs: []
     # Tighten-only subset of tools. null means the agent's full tool set.
     tool_allowlist: null
-    # Floor rules (SEC-SECRETS-001, SEC-INJ-001, ...) stay at blocker.
-    severity_overrides: {}
-    disabled_rules: []
-    language: en
 
 # Routing (michael) and risk tiers.
 routing:
@@ -128,8 +124,6 @@ review:
     - "**/generated/**"
   # Diffs larger than this many bytes are chunked or truncated.
   max_diff_bytes: 400000
-  # split_by_file | truncate
-  chunking: split_by_file
   # low | medium | high. Findings below this confidence are not published.
   min_confidence_to_publish: medium
   # nit | minor | major | blocker. Lower findings go into the summary only.
@@ -139,14 +133,6 @@ review:
   verdict:
     # Majors at or above this count turn an approval into a comment (1: any major blocks approve).
     major_threshold: 1
-    # A blocker requests changes. Repositories cannot turn this off.
-    request_changes_on_blocker: true
-  # Null uses the built-in summary template.
-  summary_template: null
-  # Honour squad-ignore comments; each needs a reason and is listed in the summary.
-  suppressions_enabled: true
-  # Repository file with accepted findings and expiry dates.
-  baseline_file: .squad/baseline.yml
 
 # Runtime skills (guidance only; see docs for precedence rules).
 skills:
@@ -154,7 +140,7 @@ skills:
   paths: [.agents/skills, .claude/skills, .squad/skills]
   # base reads skills from the target branch. head is org-only and off by default.
   ref: base
-  # Limits, each capped by limits.*.
+  # Limits, each capped by limits.*. Repositories may only lower them.
   max_skills: 20
   max_skill_bytes: 20480
   max_total_bytes: 81920
@@ -186,13 +172,14 @@ security:
     cvss_major: 7.0
   # fail_incomplete | low_confidence, when advisory sources cannot be reached.
   offline_mode: low_confidence
-  # Accepted advisories with mandatory expiry. Expired entries are ignored.
+  # Accepted advisories with mandatory expiry, applied before publication. Org-only.
+  # Expired entries are ignored. Optional package and path narrow an acceptance:
+  #   - id: CVE-2024-12345
+  #     reason: Patch scheduled for the next release.
+  #     expires: 2027-01-31
+  #     package: lodash
+  #     path: services/web/**
   accepted_risks: []
-  # Local scanners run in the sandbox when their binaries are present.
-  local_scanners:
-    gitleaks: false
-    semgrep: false
-    trivy: false
 
 # Operations (darryl): read-only observability and troubleshooting.
 ops:
@@ -206,7 +193,6 @@ ops:
   redaction_patterns: []
   max_log_lines: 500
   max_query_points: 11000
-  incident_window_minutes: 120
 
 # Implementation (pam): branches, change requests and the sandbox.
 implementer:
@@ -233,11 +219,7 @@ implementer:
   # null: detect the repository's own checks (lint, typecheck, test, build).
   check_commands: null
   sandbox:
-    # Org-only: the sandbox image.
-    image: code-squad-sandbox-node:latest
-    cpu: "1"
-    memory: 2Gi
-    # Capped by limits.max_wall_clock_seconds.
+    # Capped by limits.max_wall_clock_seconds. Repositories may only lower it.
     timeout_seconds: 1800
   git_identity:
     name: "pam (code-squad)"
@@ -249,46 +231,32 @@ implementer:
     - "**/package-lock.json"
     - "**/pnpm-lock.yaml"
     - "**/yarn.lock"
+  # Org-only: protected paths pam may change, despite protected_paths.
+  allowed_protected_paths: []
   # Org-only: executables added to the sandbox allow-list.
   extra_executables: []
 
-# LLM gateway (LiteLLM).
+# LLM gateway (LiteLLM). The gateway key comes from LLM_API_KEY or LLM_API_KEY_FILE.
 llm:
   # Org-only: gateway URL.
   base_url: https://litellm.example.com
-  # Secret name holding the gateway key.
-  api_key_secret: llm-api-key
-  # Tags sent with every call, for cost attribution.
-  tag_template:
-    - "squad:code-squad"
-    - "project:{project}"
-    - "agent:{agent}"
-  # Daily spend cap per project. Repositories may only lower it. null means no cap.
-  budget_usd_per_day: 200
-  # Model alias to gateway model name.
-  aliases: {}
-
-# Tracing, metrics and logs.
-observability:
-  # Org-only: OTLP collector endpoint.
-  otlp_endpoint: null
-  # Fraction of traces sampled.
-  sampling_ratio: 1.0
-  # Org-only. METADATA keeps prompts and diffs out of traces.
-  content_capture: METADATA
-  # DEBUG | INFO | WARNING | ERROR
-  log_level: INFO
+  # Org-only: model aliases a run may use, including per-agent and fallback models.
+  # Empty means any alias the gateway accepts.
+  allowed_models: []
 
 # Platform ceilings. No lower layer can exceed these. Org-only.
 limits:
   max_tokens: 200000
   max_iterations: 50
   max_wall_clock_seconds: 1800
-  max_tool_calls: 200
   max_skills: 50
   max_skill_bytes: 65536
   max_total_skill_bytes: 262144
   max_prompt_extra_chars: 4000
+  # Largest request body the API accepts, in bytes.
+  max_request_bytes: 1000000
+  # Hard ceiling on model tokens for one run, across all turns.
+  max_run_tokens: 400000
 
 # Secret provider. Org-only.
 secrets:
@@ -300,7 +268,8 @@ secrets:
 
 # External write policy. Org-only.
 posting:
-  # When true, no project or call can enable external writes.
+  # When true, no project or call can enable external writes. Read on every run, so
+  # editing this file takes effect on the next invocation.
   force_dry_run: false
 
 # Where repository config is read from.

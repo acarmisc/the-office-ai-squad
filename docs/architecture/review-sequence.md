@@ -16,7 +16,7 @@ sequenceDiagram
   participant SP as Specialists (jim, angela, dwight, darryl)
   participant PUB as Publication (michael)
 
-  GL->>GW: POST /webhooks/<provider> (signed delivery)
+  GL->>GW: POST /webhooks/{provider} (signed delivery)
   GW->>GW: verify signature (401 when invalid)
   GW->>GW: parse event, de-duplicate delivery id (200 duplicate)
   GW->>GW: effective configuration (503 when invalid)
@@ -26,7 +26,7 @@ sequenceDiagram
   GW->>ORC: background job (review intent)
   ORC->>VCS: change request, diff at head sha
   ORC->>VCS: manifests at head sha (package.json, pom.xml, ...)
-  ORC->>ORC: route by changed files and stack; risk tier from size, paths, deps, secrets
+  ORC->>ORC: route by changed files and stack, risk tier from size, paths, deps, secrets
   par per specialist, bounded concurrency
     ORC->>SP: POST /invocations (post false, idempotency key, traceparent)
     SP->>VCS: read context, files, skills (read only)
@@ -60,7 +60,7 @@ Without a webhook the same path starts from `POST /invocations` on michael with
 5. **Decide the trigger.** Review requests for the bot, pushes when `trigger.on_push` is set,
    and comments that mention `@<bot>` or use `/squad review` or `/squad sec` start a run.
    Draft changes, the `skip-squad` label, titles starting with WIP or Draft, and commenters
-   outside `trigger.allowed_commenters` do not. `/squad help` is ignored in this version.
+   outside `trigger.allowed_commenters` do not. `/squad help` posts the command list.
 6. **Debounce.** The same project, change request and head sha within
    `trigger.debounce_seconds` produce one run.
 7. **Respond.** The gateway answers `202` before the review runs, so the delivery does not
@@ -104,7 +104,8 @@ Without a webhook the same path starts from `POST /invocations` on michael with
 - The specialists do not publish in the default configuration. `routing.specialists_post` can
   be set true only at the organisation level, and then a specialist's own publication is not
   coordinated by michael.
-- The job store and the de-duplication record are in memory. With more than one replica, a
-  delivery can be processed by one replica and its job status read from another. Use a single
-  replica for webhook-driven reviews, or see [Scaling and upgrades](../deployment/scaling-upgrades.md).
+- The job state and the in-flight claim live in the session store (memory, or Redis with `SESSION_STORE_URL`). The
+  de-duplication record and the debounce are in memory. With more than one replica and no Redis, a delivery can be
+  processed by one replica and its job status read from another. Use a single replica for webhook-driven reviews, or see
+  [Scaling and upgrades](../deployment/scaling-upgrades.md).
 - Trigger settings (`trigger.events`, WIP titles, bot authors, drafts, skip labels, commenters) are enforced by the gateway.

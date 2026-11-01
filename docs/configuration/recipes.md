@@ -79,7 +79,9 @@ agents:
 ```
 
 The model alias is sent to the LiteLLM gateway unchanged. Use an alias that the gateway serves. The
-`fallback_model` is used once, after a truncated answer; it is not used when the gateway is overloaded.
+`fallback_model` is used once, after a truncated answer or after a gateway throttle or server error
+(HTTP 429 or 5xx). Other client errors do not trigger it. Model aliases must be in
+`llm.allowed_models` when the organisation sets that list.
 
 ## 4. Disable one agent for a repository
 
@@ -133,37 +135,27 @@ the verdict.
 
 ## 7. Accepted findings
 
-Goal: record a known finding that the team will fix later. The file is `.squad/baseline.yml`. Each
-entry needs a reason and an expiry date, which the schema enforces.
+Goal: record a known advisory that the team will fix later. Accepted risks are organisation-only. Set them in
+the organisation file, and keep them out of repository files and registry entries: a layer that sets them is
+rejected as a whole and the review continues without it. Each entry needs a reason and an expiry date.
 
-<!-- validate: baseline -->
-```yaml
-accepted:
-  - rule_id: REACT-HOOKS-004
-    file: src/legacy/Table.tsx
-    reason: Legacy table is replaced next quarter; tracked in WEB-412.
-    expires: 2027-03-31
-```
+An accepted risk matches a finding whose rule id or reference names the risk id. `package` narrows the match to
+findings whose text names that package, and `path` narrows it to changed files under that glob. A scoped risk
+therefore does not hide a finding for another package. Each suppression is listed as a warning on the result.
 
-> **Not applied yet.** The baseline file is validated and documented, but the review does not read it
-> at run time in this version. The accepted-risk setting below is applied and is the working option for
-> dependency advisories.
-
-For advisories that dwight reports, use `security.accepted_risks`. An entry suppresses matching findings
-until its expiry date, and each suppression is listed as a warning on the result:
-
-<!-- validate: config -->
+<!-- validate: config:org -->
 ```yaml
 security:
   accepted_risks:
     - id: GHSA-xxxx-xxxx-xxxx
       reason: Affected code path is not reachable; the service runs without untrusted input.
       expires: 2027-01-31
+      package: lodash
+      path: "services/web/**"
 ```
 
-Accepted risks from a repository are a known open point for review (see [ADR 0009](../decisions/0009-dwight-offline-mode.md)).
-An organisation that wants to restrict them to the organisation layer can change the field's policy in the
-schema.
+Expired entries are ignored with a warning in the published summary, so the review shows when a risk needs a
+new decision.
 
 ## 8. Add a language with an extra agent
 
@@ -187,23 +179,25 @@ extra_agents:
 The agent needs its own Deployment and the prompt on disk. See [Extra agents](../agents/extra-agents.md)
 for the steps and the current chart limitation.
 
-## 9. Per-project LLM budget
+## 9. Bound the spend of one run
 
-Goal: cap the model spend of one project. Budget is set per project in the registry.
+Goal: cap how much one review can spend and how long it can run. The token ceiling is an organisation limit
+on a whole run, across all of its turns. Per-agent budgets can only lower the platform values, and a run that
+reaches one of them returns `incomplete` with a warning.
 
-<!-- validate: projects -->
+<!-- validate: config:org -->
 ```yaml
-projects:
-  - match: acme/web-app
-    extends: balanced
-    overrides:
-      llm:
-        budget_usd_per_day: 50
+limits:
+  max_run_tokens: 200000
+agents:
+  dwight:
+    budgets:
+      wall_clock_seconds: 600
+      tool_calls: 60
 ```
 
-> **Declared, not enforced.** `llm.budget_usd_per_day` is validated and merged, but the squad does not
-> stop calls when the budget is reached in this version. Enforce the budget at the gateway, keyed on the
-> `project:<project>` tag that every call carries, until the squad enforces it.
+The squad does not convert tokens to money. For a daily spend cap per project, set a budget at the LiteLLM
+gateway and key it on the `project:<project>` tag that every call carries.
 
 ## 10. Run reviews for a project on every push
 

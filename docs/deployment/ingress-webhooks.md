@@ -77,6 +77,8 @@ Do not add a route for `/invocations` to the ingress without one of these in fro
 
 - Webhook deliveries are answered with `202` before the review runs. A review that fails later is visible in the logs
   and in `squad_invocations_total{status="failed"}`, not in the HTTP response.
-- Deliveries are de-duplicated per replica in memory. With more than one replica, a redelivery may be processed by
-  another replica. See [Scaling and upgrades](scaling-upgrades.md).
+- Deliveries are de-duplicated per replica in memory, and a change request and head run once at a time through the session
+  store. With more than one replica, a redelivery may be processed by another replica unless `SESSION_STORE_URL` is set. See
+  [Scaling and upgrades](scaling-upgrades.md).
+- A webhook body over `SQUAD_MAX_WEBHOOK_BYTES` (default 1 MiB) is refused before the signature is checked.
 - The gateway trusts the signature, not the source address. Rate limiting at the ingress is still worth having.

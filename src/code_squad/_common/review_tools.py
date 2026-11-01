@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final, cast
 
@@ -16,6 +16,7 @@ from code_squad._common.findings import (
     PublishOutcome,
     VerdictCap,
     publish,
+    summary_notes_of,
 )
 from code_squad._common.posting import DryRunError
 from code_squad._common.untrusted import wrap_untrusted
@@ -26,6 +27,7 @@ from code_squad._common.vcs.base import (
     NotFoundError,
     VcsError,
     VcsProvider,
+    same_login,
 )
 
 MAX_CONTEXT_BYTES: Final = 120_000
@@ -38,7 +40,11 @@ MAX_PATTERN_CHARS: Final = 200
 MAX_FINDINGS: Final = 100
 _REF_TEXT: Final = re.compile(r"^!?#?(\d+)$")
 _GIT_REF: Final = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
-_VERSION: Final = re.compile(r"^[\w.^~<>=*| -]{1,40}$")
+_VERSION: Final = re.compile(r"^[\w.^~>=*| -]{1,40}$")
+_IDENTIFIER: Final = re.compile(r"^[\w._/@+\-\[\]#:]{1,200}$")
+_PATH_CHARS: Final = re.compile(r"^[\w._/@+\-\[\]()=,~]{1,300}$")
+_NOTE_RESERVE: Final = 512
+_PRE_PUBLISH: Final = "pre_publish_filters"
 _LANGUAGES: Final[dict[str, str]] = {
     ".ts": "typescript",
     ".tsx": "typescript",
@@ -106,11 +112,13 @@ def _safe_path(path: str) -> bool:
 
 @tool
 def get_review_context(change_request: str = "") -> str:
-    """Return the review context for the change request as JSON in one call.
+    """Return the review context: JSON metadata first, then the raw diffs.
 
-    Includes change request metadata, head and base sha, changed files with
-    language, the diffs, existing comments, latest CI run and framework hints
-    read from the target branch. Untrusted text is delimited in untrusted blocks.
+    The JSON holds change request metadata, head and base sha, changed files with
+    language, existing comments (the bot's own are left out), latest CI run and
+    framework hints read from the target branch. Every free-text value from the
+    repository host is delimited in an untrusted block. Each diff follows the JSON as
+    raw untrusted text, not escaped inside it.
 
     Args:
         change_request: Change request number, for example "42". Empty uses the
@@ -123,34 +131,48 @@ def get_review_context(change_request: str = "") -> str:
     cr = provider.get_change_request(ref)
     diff = provider.get_diff(ref, cr.head_sha)
     current().services["review_state"] = ReviewState(ref, cr.head_sha, diff)
+    bot = provider.whoami().username
+    comments = [
+        item for item in provider.list_comments(ref) if not same_login(item.author, bot)
+    ]
     context: dict[str, Any] = {
         "change_request": {
             "number": ref.number,
             "title": wrap_untrusted(cr.title, "change_request:title"),
             "description": wrap_untrusted(cr.description, "change_request:description"),
-            "author": cr.author,
-            "source_branch": cr.source_branch,
-            "target_branch": cr.target_branch,
-            "head_sha": cr.head_sha,
-            "base_sha": cr.base_sha,
+            "author": _identifier(cr.author, "change_request:author"),
+            "source_branch": _identifier(cr.source_branch, "change_request:source"),
+            "target_branch": _identifier(cr.target_branch, "change_request:target"),
+            "head_sha": _identifier(cr.head_sha, "change_request:head_sha"),
+            "base_sha": _identifier(cr.base_sha, "change_request:base_sha"),
             "draft": cr.draft,
             "is_fork": cr.is_fork,
-            "labels": list(cr.labels),
+            "labels": [
+                _identifier(label, "change_request:label") for label in cr.labels
+            ],
         },
         "files": [_file_entry(item) for item in diff],
         "frameworks": _frameworks(provider, ref.project, cr.target_branch),
         "ci": _latest_ci(provider, ref.project, cr.head_sha),
-        "comments": [_comment_entry(item) for item in provider.list_comments(ref)],
-        "diffs": [],
+        "comments": [_comment_entry(item) for item in comments],
         "truncation": [],
     }
-    _fill_diffs(context, diff)
-    return json.dumps(context, ensure_ascii=False)
+    blocks = _diff_blocks(context, diff)
+    return "\n".join([json.dumps(context, ensure_ascii=False), *blocks])
+
+
+def _identifier(value: str, source: str) -> str:
+    """Identifiers pass through when they use a safe charset, else they are wrapped."""
+    return value if _IDENTIFIER.match(value) else wrap_untrusted(value, source)
+
+
+def _path_text(value: str, source: str) -> str:
+    return value if _PATH_CHARS.match(value) else wrap_untrusted(value, source)
 
 
 def _file_entry(item: FileDiff) -> dict[str, Any]:
     return {
-        "path": item.path,
+        "path": _path_text(item.path, "file:path"),
         "status": item.status,
         "language": _language(item.path),
         "truncated": item.truncated,
@@ -165,9 +187,11 @@ def _language(path: str) -> str:
 
 def _comment_entry(comment: Comment) -> dict[str, Any]:
     return {
-        "id": comment.id,
-        "author": comment.author,
-        "path": comment.path,
+        "id": _identifier(comment.id, "comment:id"),
+        "author": _identifier(comment.author, "comment:author"),
+        "path": None
+        if comment.path is None
+        else _path_text(comment.path, "comment:path"),
         "line": comment.line,
         "body": wrap_untrusted(
             str(comment.body)[:MAX_COMMENT_CHARS], f"comment:{comment.id}"
@@ -183,26 +207,32 @@ def _latest_ci(provider: VcsProvider, project: str, sha: str) -> dict[str, Any] 
     if not runs:
         return None
     latest = runs[0]
-    return {"status": latest.status, "name": wrap_untrusted(latest.name, "ci:name")}
+    return {
+        "status": _identifier(latest.status, "ci:status"),
+        "name": wrap_untrusted(latest.name, "ci:name"),
+    }
 
 
-def _fill_diffs(context: dict[str, Any], diff: tuple[FileDiff, ...]) -> None:
-    budget = MAX_CONTEXT_BYTES - _size(context)
+def _diff_blocks(context: dict[str, Any], diff: tuple[FileDiff, ...]) -> list[str]:
+    """Raw untrusted blocks for each diff that fits the total output budget."""
+    budget = MAX_CONTEXT_BYTES - _size(context) - _NOTE_RESERVE
+    blocks: list[str] = []
+    omitted = 0
     for item in diff:
         if item.truncated or not item.patch:
             continue
-        entry = {
-            "path": item.path,
-            "patch": wrap_untrusted(item.patch, f"diff:{item.path}"),
-        }
-        cost = _size(entry)
+        block = wrap_untrusted(item.patch, f"diff:{item.path}")
+        cost = len(block.encode("utf-8")) + 1
         if cost > budget:
-            context["truncation"].append(
-                f"diff omitted for {item.path}: context budget reached"
-            )
+            omitted += 1
             continue
-        context["diffs"].append(entry)
+        blocks.append(block)
         budget -= cost
+    if omitted:
+        context["truncation"].append(
+            f"diff omitted for {omitted} file(s): context budget reached"
+        )
+    return blocks
 
 
 def _size(value: object) -> int:
@@ -348,12 +378,13 @@ def list_tree(path: str = "") -> str:
 def publish_review(findings: list[dict[str, Any]], summary: str) -> str:
     """Publish findings as inline comments and a summary. External write.
 
-    Findings are validated, anchored to the changed lines, de-duplicated against
-    existing comments and published idempotently. Blocked by dry-run.
+    Findings are validated, stamped with the head and agent of this run, anchored to
+    added lines, de-duplicated against existing comments and published idempotently.
+    Blocked by dry-run.
 
     Args:
-        findings: Finding objects with agent, rule_id, category, severity, confidence,
-            file, line_start, line_end, head_sha, title and rationale.
+        findings: Finding objects with rule_id, category, severity, confidence, file,
+            line_start, line_end, title and rationale. The run sets head and agent.
         summary: Short summary for the review.
     """
     ctx = current()
@@ -361,26 +392,27 @@ def publish_review(findings: list[dict[str, Any]], summary: str) -> str:
         ctx.gate.require_write("publish_review")
     except DryRunError:
         return "publish_review refused: posting is disabled for this run (dry-run)"
-    parsed = _parse_findings(findings, ctx.agent)
-    if isinstance(parsed, str):
-        return parsed
     ref = _ref("")
     if ref is None:
         return "change request not found in this run"
     provider = _provider()
     head = _review_head(provider, ref)
+    parsed = _parse_findings(findings, ctx.agent, head)
+    if isinstance(parsed, str):
+        return parsed
+    kept, filter_warnings = _apply_pre_publish_filters(parsed)
     options = _publish_options(ctx.services.get("publish_options"))
     outcome = publish(
         provider,
         ref,
         head,
-        parsed,
+        kept,
         summary[:4000],
         agent=ctx.agent,
         gate=ctx.gate,
         options=options,
-        journal=ctx.services.get("journal"),
-        idempotency_key=ctx.request.idempotency_key,
+        extra_warnings=filter_warnings,
+        config_notes=summary_notes_of(ctx.services),
     )
     return _describe(outcome)
 
@@ -408,13 +440,16 @@ def _review_head(provider: VcsProvider, ref: ChangeRequestRef) -> str:
     return provider.get_change_request(ref).head_sha
 
 
-def _parse_findings(raw: list[dict[str, Any]], agent: str) -> list[Finding] | str:
+def _parse_findings(
+    raw: list[dict[str, Any]], agent: str, head: str
+) -> list[Finding] | str:
     if len(raw) > MAX_FINDINGS:
         return f"too many findings: at most {MAX_FINDINGS} per call"
     parsed: list[Finding] = []
     for index, item in enumerate(raw):
+        run_state = {"agent": agent, "head_sha": head, "id": ""}
         try:
-            finding = Finding.model_validate({**item, "agent": agent, "id": ""})
+            finding = Finding.model_validate({**item, **run_state})
         except ValidationError as exc:
             first = exc.errors(include_input=False, include_url=False)[0]
             location = ".".join(str(part) for part in first["loc"]) or "finding"
@@ -441,3 +476,20 @@ def _describe(outcome: PublishOutcome) -> str:
     if outcome.warnings:
         parts.append("warnings=" + "; ".join(outcome.warnings))
     return "published: " + ", ".join(parts)
+
+
+PublishFilter = Callable[[list[Finding]], tuple[list[Finding], list[str]]]
+
+
+def _apply_pre_publish_filters(
+    findings: list[Finding],
+) -> tuple[list[Finding], list[str]]:
+    """Run services' pre-publish filters (for example accepted risks) in order."""
+    filters = current().services.get(_PRE_PUBLISH, [])
+    if not isinstance(filters, (list, tuple)):
+        return findings, []
+    kept, warnings = list(findings), []
+    for run_filter in cast(Sequence[PublishFilter], filters):
+        kept, notes = run_filter(kept)
+        warnings.extend(notes)
+    return kept, warnings

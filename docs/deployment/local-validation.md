@@ -57,6 +57,14 @@ smoke compose: all 6 agents passed
 The fake LLM log recorded 13 chat-completion requests for this run. A negative check with
 one unreachable base URL exits 1 with `FAIL michael: GET /ready did not return 200 within 4s`.
 
+### Re-run after ADR 0013 (operational readiness)
+
+Run on 2026-11-01 against the working tree that contains ADR 0013, with the same CA base image. The compose file now sets
+`SQUAD_ALLOW_UNAUTHENTICATED=1` explicitly, because `/invocations` refuses every request without a token. All six agents
+passed `scripts/smoke_test.sh compose` (`smoke compose: all 6 agents passed`). The scripted dry-run client
+`scripts/trial_review.sh http://localhost:8081 platform/example-app 123` returned `incomplete` with
+`VCS unavailable for this run`, which is expected without a VCS, and posted nothing.
+
 ## 2. kind demo: not runnable in this environment
 
 `deploy/kind/kind-up.sh` was run as committed, with the `IMAGE` and `PYTHON_IMAGE`

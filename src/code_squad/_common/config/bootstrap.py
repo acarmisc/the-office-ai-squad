@@ -103,14 +103,49 @@ BOOTSTRAP_ENV: tuple[EnvVar, ...] = (
     EnvVar("AGENT_PROMPT_FILE", "Override the agent's prompt file.", None, False),
     EnvVar(
         "SQUAD_API_TOKEN",
-        "Shared bearer token for POST /invocations and GET /jobs/{id}. Unset means "
-        "no token check. Prefer the file.",
+        "Shared bearer token for POST /invocations and GET /jobs/{id}. Required unless "
+        "SQUAD_ALLOW_UNAUTHENTICATED=1; without either, both endpoints refuse every "
+        "request. Prefer the file.",
         None,
         False,
     ),
     EnvVar(
         "SQUAD_API_TOKEN_FILE",
         "File holding the shared bearer token. Read once at start-up.",
+        None,
+        False,
+    ),
+    EnvVar(
+        "SQUAD_ALLOW_UNAUTHENTICATED",
+        "Set to 1 to keep /invocations and /jobs open when no API token is configured. "
+        "Local demos and tests only; the chart sets it only when "
+        "api.allowUnauthenticated is true.",
+        None,
+        False,
+    ),
+    EnvVar(
+        "SQUAD_MAX_REQUEST_BYTES",
+        "Largest accepted /invocations request body. Larger bodies get 413 before "
+        "parsing.",
+        "1000000",
+        False,
+    ),
+    EnvVar(
+        "SQUAD_MAX_WEBHOOK_BYTES",
+        "Largest accepted webhook body. Applied before signature verification.",
+        "1048576",
+        False,
+    ),
+    EnvVar(
+        "SQUAD_DOCS_URL",
+        "Documentation link appended to the /squad help reply on the VCS.",
+        None,
+        False,
+    ),
+    EnvVar(
+        "ALLOW_LOCAL_SANDBOX",
+        "Set to 1 to let pam run without the Kubernetes sandbox (SANDBOX_NAMESPACE "
+        "unset). Development only; pam refuses to start otherwise.",
         None,
         False,
     ),

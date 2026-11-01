@@ -164,14 +164,15 @@ def test_protected_globs_match_ci_files_and_lockfiles() -> None:
     ]
 
 
-def test_protected_violations_are_empty_when_the_task_requires_the_paths() -> None:
-    changed = [".github/workflows/ci.yml", "src/app.tsx"]
-    assert protected_path_violations(changed, PROTECTED, "default") == [
-        ".github/workflows/ci.yml"
+def test_protected_violations_exclude_only_operator_allowed_paths() -> None:
+    changed = [".github/workflows/ci.yml", "src/app.tsx", "yarn.lock"]
+    assert protected_path_violations(changed, PROTECTED, []) == [
+        ".github/workflows/ci.yml",
+        "yarn.lock",
     ]
-    assert (
-        protected_path_violations(changed, PROTECTED, "requires_protected_paths") == []
-    )
+    assert protected_path_violations(changed, PROTECTED, [".github/**"]) == [
+        "yarn.lock"
+    ]
 
 
 def test_protected_glob_does_not_match_look_alike_paths() -> None:

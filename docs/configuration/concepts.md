@@ -5,6 +5,12 @@ requires a code change or an image rebuild. This page explains how the pieces fi
 is the [configuration reference](../reference/configuration.md), generated from the schema. The layer
 diagram is on [Configuration layering](../architecture/config-layering.md).
 
+<figure markdown>
+![Validation and an explanation of one project's effective configuration in the terminal](../assets/demos/config.svg)
+<figcaption>A recording of <code>squad config validate</code> and <code>squad config explain</code> on the example files. The transcript
+is <a href="../assets/casts/config.cast">config.cast</a>. Play it locally with <code>asciinema play docs/assets/casts/config.cast</code>.</figcaption>
+</figure>
+
 ## The files
 
 | File | Owner | Where it lives | Purpose |
@@ -12,7 +18,6 @@ diagram is on [Configuration layering](../architecture/config-layering.md).
 | `squad.yaml` | Platform operator | ConfigMap `code-squad-config`, mounted at `/etc/squad/squad.yaml` | Organisation defaults and platform limits. Keys can also be set with `SQUAD__SECTION__KEY` variables. |
 | `projects.yaml` | Platform operator | ConfigMap `code-squad-projects`, mounted at `/etc/squad/projects/` | The project registry: which projects exist, their provider, their secret names, and the profile each one extends. |
 | `.squad/config.yml` | Project team | The repository, on the target branch | Review rules for one project: routes, ignore globs, thresholds, skills, implementer settings. |
-| `.squad/baseline.yml` | Project team | The repository, on the target branch | Accepted findings with a reason and an expiry date. Recorded, but not applied at run time yet. |
 | `.agents/skills/<name>/SKILL.md` | Project team | The repository, on the target branch | Project guidance for the reviewers and for pam. See [skills authoring](../onboarding/skills-authoring.md). |
 
 Each file starts with the schema hint, for example `# yaml-language-server: $schema=...`, so editors

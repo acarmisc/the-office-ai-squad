@@ -120,14 +120,13 @@ returns the findings it would have published.
 | --- | --- | --- |
 | `agents.jim.enabled` | `true` | Disabling it makes `jim` return `incomplete` without a model call. |
 | `agents.jim.model` | `sonnet-5-5` (built-in) | Model alias. |
-| `agents.jim.fallback_model` | `null` | Used once after a truncated answer. Not used for overload. |
+| `agents.jim.fallback_model` | `null` | Used once after a truncated answer, or after a gateway 429 or 5xx. |
 | `agents.jim.temperature` | built-in `0.0` | Sampling temperature. |
 | `agents.jim.max_tokens` | built-in `8192` | Capped by `limits.max_tokens`. |
 | `agents.jim.max_iterations` | built-in `25` | Capped by `limits.max_iterations`. |
 | `agents.jim.tool_allowlist` | `null` | Subset of jim's tools. `finish` always stays. |
 | `agents.jim.prompt_extra` | `null` | Appended as untrusted guidance, capped at `limits.max_prompt_extra_chars` (4000 by default). |
-| `agents.jim.budgets.*` | see reference | Not enforced in this version. |
-| `agents.jim.severity_overrides`, `disabled_rules`, `language` | empty, `en` | Not applied in this version. |
+| `agents.jim.budgets.wall_clock_seconds`, `tool_calls` | `900`, `100` | Tighten-only. A run that reaches one returns `incomplete`. |
 | `review.min_confidence_to_publish` | `medium` | Findings below are not published. |
 | `review.min_severity_inline` | `minor` | Lower findings go to the summary. |
 | `review.max_findings` | `30` | Maximum findings published per run. |

@@ -59,3 +59,45 @@ def test_api_token_is_a_secret_reference_on_every_agent_when_configured() -> Non
 def test_api_token_is_absent_by_default() -> None:
     for variables in _containers().values():
         assert "SQUAD_API_TOKEN" not in variables
+
+
+def _render_result(*sets: str) -> subprocess.CompletedProcess[str]:
+    command = ["helm", "template", "t", str(CHART), *sets]
+    return subprocess.run(command, capture_output=True, text=True, check=False)
+
+
+def test_michael_with_several_replicas_needs_a_shared_session_store() -> None:
+    rendered = _render_result("--set", "agents.michael.replicas=2")
+    assert rendered.returncode != 0
+    assert "sessionStore.url" in rendered.stderr
+
+
+def test_michael_hpa_needs_a_shared_session_store() -> None:
+    rendered = _render_result("--set", "hpa.enabled=true")
+    assert rendered.returncode != 0
+    assert "sessionStore.url" in rendered.stderr
+
+
+def test_michael_scales_once_a_session_store_is_configured() -> None:
+    rendered = _render_result(
+        "--set",
+        "agents.michael.replicas=2",
+        "--set",
+        "sessionStore.url=redis://session-store.example.test:6379",
+    )
+    assert rendered.returncode == 0, rendered.stderr
+
+
+def test_the_chart_never_opens_the_api_by_default() -> None:
+    for variables in _containers().values():
+        assert "SQUAD_ALLOW_UNAUTHENTICATED" not in variables
+
+
+def test_allow_unauthenticated_is_rendered_on_every_agent_only_when_set() -> None:
+    env = _containers("--set", "api.allowUnauthenticated=true")
+    for agent, variables in env.items():
+        assert variables["SQUAD_ALLOW_UNAUTHENTICATED"]["value"] == "1", agent
+    assert (
+        "SQUAD_ALLOW_UNAUTHENTICATED"
+        not in _containers("--set", "api.allowUnauthenticated=false")["michael"]
+    )

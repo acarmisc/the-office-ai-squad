@@ -21,18 +21,8 @@ from pydantic import (
 )
 
 from code_squad._common.config.meta import ceiling_violations
-from code_squad._common.contract import Severity
 from code_squad._common.registry import AGENT_IDS
-from code_squad._common.secrets.base import LLM_API_KEY_SECRET
 
-FLOOR_RULES: Final[tuple[str, ...]] = (
-    "SEC-SECRETS-001",
-    "SEC-INJ-001",
-    "SEC-INJ-002",
-    "SEC-XSS-001",
-    "SEC-AUTHZ-001",
-    "SEC-DESER-001",
-)
 DEFAULT_SECRET_PATTERNS: Final[tuple[str, ...]] = ("^[a-z0-9][a-z0-9._-]*$",)
 SECRET_NAME_PATTERN: Final[str] = r"^[a-z0-9][a-z0-9._-]{0,252}$"
 EXTRA_AGENT_ID_PATTERN: Final[str] = r"^[a-z][a-z0-9]{1,30}$"
@@ -65,7 +55,6 @@ def _field(
     order: list[str] | None = None,
     ceiling: str | None = None,
     secret: bool = False,
-    floor: bool = False,
     tool_names: bool = False,
     **kwargs: Any,
 ) -> Any:
@@ -82,8 +71,6 @@ def _field(
         extra["x-ceiling"] = ceiling
     if secret:
         extra["x-secret-ref"] = True
-    if floor:
-        extra["x-floor"] = True
     if tool_names:
         extra["x-tool-names"] = True
     return Field(description=description, json_schema_extra=extra or None, **kwargs)
@@ -96,10 +83,6 @@ def _secret_field(description: str, **kwargs: Any) -> Any:
         pattern=SECRET_NAME_PATTERN,
         **kwargs,
     )
-
-
-def _normalise_rule(rule_id: str) -> str:
-    return rule_id.strip().upper()
 
 
 # ---------------------------------------------------------------- vcs
@@ -137,10 +120,6 @@ class VcsConfig(_Base):
     )
     bot_username: str | None = _field(
         "Login of the bot identity, used for loop prevention.", default=None
-    )
-    status_mode: Literal["check_run", "commit_status", "auto"] = _field(
-        "How verdicts are published. 'auto' prefers check runs and falls back.",
-        default="auto",
     )
     status_context_template: str = _field(
         "Commit status or check name template; {agent} is the agent id.",
@@ -192,10 +171,6 @@ class TriggerConfig(_Base):
         merge="tighten_only",
         tighten="subset",
     )
-    slash_commands: list[str] = _field(
-        "Slash commands recognised in comments, without the slash.",
-        default_factory=lambda: ["review", "sec", "implement", "help"],
-    )
     debounce_seconds: int = _field(
         "Quiet period before a burst of events starts one run.",
         default=30,
@@ -211,7 +186,16 @@ class TriggerConfig(_Base):
         "Skip change requests whose title starts with WIP or Draft.", default=True
     )
     skip_bot_authors: bool = _field(
-        "Skip change requests and comments authored by bots.", default=True
+        "Skip change requests and comments authored by other bots. The bot's own "
+        "events are always ignored.",
+        default=False,
+    )
+    allowed_assigners: list[str] = _field(
+        "Users who may assign an issue to the bot to start a pam run. Empty means "
+        "nobody. Lower layers may only shrink the list.",
+        default_factory=list,
+        merge="tighten_only",
+        tighten="subset",
     )
 
 
@@ -219,31 +203,20 @@ class TriggerConfig(_Base):
 
 
 class Budgets(_Base):
-    tokens: int = _field(
-        "Maximum model tokens per invocation for this agent.",
-        default=100000,
-        ge=1,
-        merge="tighten_only",
-        ceiling="limits.max_tokens",
-    )
     wall_clock_seconds: int = _field(
-        "Maximum wall-clock seconds per invocation.",
+        "Maximum wall-clock seconds per invocation. Lower layers may only lower it.",
         default=900,
         ge=1,
         merge="tighten_only",
+        tighten="le",
         ceiling="limits.max_wall_clock_seconds",
     )
     tool_calls: int = _field(
-        "Maximum tool calls per invocation.",
+        "Maximum tool calls per invocation. Lower layers may only lower it.",
         default=100,
         ge=1,
         merge="tighten_only",
-        ceiling="limits.max_tool_calls",
-    )
-    cost_hint_usd: float | None = _field(
-        "Advisory cost ceiling reported in stats.cost_hint.",
-        default=5.0,
-        ge=0,
+        tighten="le",
     )
 
 
@@ -267,6 +240,7 @@ class AgentConfig(_Base):
         default=None,
         ge=1,
         merge="tighten_only",
+        tighten="le",
         ceiling="limits.max_tokens",
     )
     max_iterations: int | None = _field(
@@ -274,6 +248,7 @@ class AgentConfig(_Base):
         default=None,
         ge=1,
         merge="tighten_only",
+        tighten="le",
         ceiling="limits.max_iterations",
     )
     budgets: Budgets = _field(
@@ -302,37 +277,6 @@ class AgentConfig(_Base):
         tighten="subset",
         tool_names=True,
     )
-    severity_overrides: dict[str, Severity] = _field(
-        "Severity per rule_id. Floor rules must stay at blocker.",
-        default_factory=dict,
-        floor=True,
-    )
-    disabled_rules: list[str] = _field(
-        "Rule ids turned off for this agent. Floor rules cannot be disabled.",
-        default_factory=list,
-        mergeable=True,
-        floor=True,
-    )
-    language: str = _field(
-        "Language of published comments.", default="en", min_length=2, max_length=16
-    )
-
-    @field_validator("disabled_rules")
-    @classmethod
-    def _no_floor_disable(cls, value: list[str]) -> list[str]:
-        normalised = [_normalise_rule(rule) for rule in value]
-        floor = sorted(set(normalised) & set(FLOOR_RULES))
-        if floor:
-            raise ValueError(f"floor rules cannot be disabled: {', '.join(floor)}")
-        return value
-
-    @field_validator("severity_overrides")
-    @classmethod
-    def _floor_stays_blocker(cls, value: dict[str, Severity]) -> dict[str, Severity]:
-        for rule, severity in value.items():
-            if _normalise_rule(rule) in FLOOR_RULES and severity != Severity.BLOCKER:
-                raise ValueError(f"floor rule {rule} must stay at blocker severity")
-        return value
 
 
 # ---------------------------------------------------------------- routing
@@ -449,12 +393,6 @@ class VerdictPolicy(_Base):
         default=1,
         ge=0,
     )
-    request_changes_on_blocker: bool = _field(
-        "A blocker finding requests changes. Lower layers cannot turn it off.",
-        default=True,
-        merge="tighten_only",
-        tighten="true",
-    )
 
 
 class ReviewConfig(_Base):
@@ -481,9 +419,6 @@ class ReviewConfig(_Base):
         default=400000,
         ge=1000,
     )
-    chunking: Literal["split_by_file", "truncate"] = _field(
-        "How oversized diffs are handled.", default="split_by_file"
-    )
     min_confidence_to_publish: Literal["low", "medium", "high"] = _field(
         "Findings below this confidence are not published.", default="medium"
     )
@@ -496,21 +431,6 @@ class ReviewConfig(_Base):
     )
     verdict: VerdictPolicy = _field(
         "Verdict thresholds.", default_factory=VerdictPolicy
-    )
-    summary_template: str | None = _field(
-        "Summary note template; null uses the built-in template.",
-        default=None,
-        max_length=8000,
-    )
-    suppressions_enabled: bool = _field(
-        "Honour in-code suppression comments (squad-ignore <rule_id> <reason>).",
-        default=True,
-    )
-    baseline_file: str = _field(
-        "Repository file with accepted findings and mandatory expiry dates.",
-        default=".squad/baseline.yml",
-        min_length=1,
-        max_length=256,
     )
 
 
@@ -529,24 +449,28 @@ class SkillsConfig(_Base):
         merge="org_only",
     )
     max_skills: int = _field(
-        "Maximum skills loaded per run.",
+        "Maximum skills loaded per run. Lower layers may only lower it.",
         default=20,
         ge=1,
         merge="tighten_only",
+        tighten="le",
         ceiling="limits.max_skills",
     )
     max_skill_bytes: int = _field(
-        "Maximum bytes per skill body; larger bodies are truncated with a warning.",
+        "Maximum bytes per skill body; larger bodies are truncated with a warning. "
+        "Lower layers may only lower it.",
         default=20480,
         ge=1,
         merge="tighten_only",
+        tighten="le",
         ceiling="limits.max_skill_bytes",
     )
     max_total_bytes: int = _field(
-        "Maximum total skill bytes per run.",
+        "Maximum total skill bytes per run. Lower layers may only lower it.",
         default=81920,
         ge=1,
         merge="tighten_only",
+        tighten="le",
         ceiling="limits.max_total_skill_bytes",
     )
     allowed_sources: list[SkillSource] = _field(
@@ -609,12 +533,18 @@ class AcceptedRisk(_Base):
     expires: date = _field(
         "Date after which the acceptance is ignored with a warning.",
     )
-
-
-class LocalScanners(_Base):
-    gitleaks: bool = _field("Run gitleaks in the sandbox.", default=False)
-    semgrep: bool = _field("Run semgrep in the sandbox.", default=False)
-    trivy: bool = _field("Run trivy fs in the sandbox.", default=False)
+    package: str | None = _field(
+        "Package name the acceptance is limited to. The finding must name it.",
+        default=None,
+        min_length=1,
+        max_length=214,
+    )
+    path: str | None = _field(
+        "Glob of changed files the acceptance is limited to.",
+        default=None,
+        min_length=1,
+        max_length=256,
+    )
 
 
 class SecurityConfig(_Base):
@@ -644,14 +574,10 @@ class SecurityConfig(_Base):
         default="low_confidence",
     )
     accepted_risks: list[AcceptedRisk] = _field(
-        "Accepted advisories. Expired entries are ignored with a warning. Lower "
-        "layers may only add entries.",
+        "Accepted advisories, applied before publication. Expired entries are "
+        "ignored with a warning. Org-only.",
         default_factory=list,
-        mergeable=True,
-    )
-    local_scanners: LocalScanners = _field(
-        "Local scanners run in the sandbox when their binaries exist.",
-        default_factory=LocalScanners,
+        merge="org_only",
     )
 
 
@@ -684,30 +610,19 @@ class OpsConfig(_Base):
     max_query_points: int = _field(
         "Maximum points per metrics range query.", default=11000, ge=1
     )
-    incident_window_minutes: int = _field(
-        "Window around an alert used to correlate changes.", default=120, ge=1
-    )
 
 
 # ---------------------------------------------------------------- implementer
 
 
 class SandboxConfig(_Base):
-    image: str = _field(
-        "Sandbox container image. Org-only.",
-        default="code-squad-sandbox-node:latest",
-        min_length=1,
-        max_length=256,
-        merge="org_only",
-    )
-    cpu: str = _field("CPU limit for the sandbox.", default="1", max_length=16)
-    memory: str = _field("Memory limit for the sandbox.", default="2Gi", max_length=16)
     timeout_seconds: int = _field(
-        "Wall-clock limit for one implementation run. Cannot exceed "
-        "limits.max_wall_clock_seconds.",
+        "Wall-clock limit for one implementation run. Lower layers may only lower it; "
+        "cannot exceed limits.max_wall_clock_seconds.",
         default=1800,
         ge=1,
         merge="tighten_only",
+        tighten="le",
         ceiling="limits.max_wall_clock_seconds",
     )
 
@@ -786,6 +701,12 @@ class ImplementerConfig(_Base):
         default_factory=list,
         merge="org_only",
     )
+    allowed_protected_paths: list[str] = _field(
+        "Globs pam may change although protected_paths matches them. Org-only; a "
+        "repository cannot allow a protected path for itself.",
+        default_factory=list,
+        merge="org_only",
+    )
 
 
 # ---------------------------------------------------------------- llm and platform
@@ -795,45 +716,11 @@ class LlmConfig(_Base):
     base_url: str | None = _field(
         "LiteLLM gateway URL. Org-only (egress).", default=None, merge="org_only"
     )
-    api_key_secret: str | None = _secret_field(
-        "Secret name holding the gateway key.", default=LLM_API_KEY_SECRET
-    )
-    tag_template: list[str] = _field(
-        "LiteLLM tags sent with each call. {project} and {agent} are filled in.",
-        default_factory=lambda: [
-            "squad:code-squad",
-            "project:{project}",
-            "agent:{agent}",
-        ],
-    )
-    budget_usd_per_day: float | None = _field(
-        "Daily spend cap per project. Lower layers may only lower it.",
-        default=None,
-        ge=0,
-        merge="tighten_only",
-        tighten="le",
-    )
-    aliases: dict[str, str] = _field(
-        "Reserved: model alias to gateway model name. Not applied in this version; "
-        "model aliases are passed to the LiteLLM gateway unchanged.",
-        default_factory=dict,
-    )
-
-
-class ObservabilityConfig(_Base):
-    otlp_endpoint: str | None = _field(
-        "OTLP collector endpoint. Org-only (egress).", default=None, merge="org_only"
-    )
-    sampling_ratio: float = _field(
-        "Trace sampling ratio between 0 and 1.", default=1.0, ge=0, le=1
-    )
-    content_capture: Literal["FULL", "METADATA"] = _field(
-        "Whether prompts and diffs may appear in traces. Org-only.",
-        default="METADATA",
+    allowed_models: list[str] = _field(
+        "Model aliases a run may use, including per-agent and fallback models. Empty "
+        "means any. Org-only.",
+        default_factory=list,
         merge="org_only",
-    )
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = _field(
-        "Log level.", default="INFO"
     )
 
 
@@ -850,9 +737,6 @@ class Limits(_Base):
     max_wall_clock_seconds: int = _field(
         "Platform ceiling for wall-clock seconds.", default=1800, ge=1, merge="org_only"
     )
-    max_tool_calls: int = _field(
-        "Platform ceiling for tool calls.", default=200, ge=1, merge="org_only"
-    )
     max_skills: int = _field(
         "Platform ceiling for skills per run.", default=50, ge=1, merge="org_only"
     )
@@ -868,6 +752,18 @@ class Limits(_Base):
     max_prompt_extra_chars: int = _field(
         "Platform ceiling for prompt_extra length.",
         default=4000,
+        ge=1,
+        merge="org_only",
+    )
+    max_request_bytes: int = _field(
+        "Largest request body the API accepts, in bytes.",
+        default=1_000_000,
+        ge=1,
+        merge="org_only",
+    )
+    max_run_tokens: int = _field(
+        "Hard ceiling on model tokens for one run, across all turns.",
+        default=400_000,
         ge=1,
         merge="org_only",
     )
@@ -971,9 +867,6 @@ class SquadFields(_Base):
         "Implementation settings (pam).", default_factory=ImplementerConfig
     )
     llm: LlmConfig = _field("LLM gateway settings.", default_factory=LlmConfig)
-    observability: ObservabilityConfig = _field(
-        "Tracing, logging and content capture.", default_factory=ObservabilityConfig
-    )
     limits: Limits = _field(
         "Platform ceilings no lower layer can exceed. Org-only.",
         default_factory=Limits,
@@ -1034,7 +927,7 @@ class RepoConfig(SquadFields):
     )
 
 
-# ---------------------------------------------------------------- registry and baseline
+# ---------------------------------------------------------------- registry
 
 
 class ProjectEntry(_Base):
@@ -1073,31 +966,4 @@ class ProjectsFile(_Base):
     projects: list[ProjectEntry] = _field(
         "Project registry entries, least to most specific by match.",
         default_factory=list,
-    )
-
-
-class BaselineEntry(_Base):
-    finding_id: str | None = _field(
-        "Stable finding id to accept. Use rule_id and file when the id changes.",
-        default=None,
-        min_length=1,
-        max_length=128,
-    )
-    rule_id: str | None = _field(
-        "Rule id to accept within the file.", default=None, min_length=1, max_length=128
-    )
-    file: str = _field("File the accepted finding belongs to.", min_length=1)
-    reason: str = _field("Why the finding is accepted. Required.", min_length=1)
-    expires: date = _field("Mandatory expiry date; expired entries are ignored.")
-
-    @model_validator(mode="after")
-    def _needs_identity(self) -> BaselineEntry:
-        if self.finding_id is None and self.rule_id is None:
-            raise ValueError("either finding_id or rule_id is required")
-        return self
-
-
-class Baseline(_Base):
-    accepted: list[BaselineEntry] = _field(
-        "Accepted findings with mandatory expiry dates.", default_factory=list
     )

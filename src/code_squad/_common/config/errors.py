@@ -12,6 +12,10 @@ class ConfigError(Exception):
         super().__init__(f"{message}: {detail}" if detail else message)
 
 
+class ConfigUnreadableError(ConfigError):
+    """A configuration file exists but cannot be read; no earlier copy may stand in."""
+
+
 def problems_of(exc: ValidationError) -> list[str]:
     """Render pydantic errors as ``dotted.path: message`` strings."""
     out: list[str] = []

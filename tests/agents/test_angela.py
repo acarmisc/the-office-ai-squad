@@ -104,7 +104,9 @@ def test_review_context_reports_the_java_release_and_knowledge_is_readable(
     client = client_for("angela", fake, models(model), tmp_path)
     invoke(client, post=False)
     texts = tool_result_texts(model.calls[-1].messages)
-    context = json.loads(next(t for t in texts if t.lstrip().startswith("{")))
+    context, _end = json.JSONDecoder().raw_decode(
+        next(t for t in texts if t.lstrip().startswith("{")).lstrip()
+    )
     assert context["frameworks"]["java_release"] == "17"
     assert context["frameworks"]["react"] is None
     assert [item["path"] for item in context["files"]] == [JAVA_PATH]
@@ -169,7 +171,7 @@ def test_finding_outside_the_changed_lines_is_demoted_to_a_general_note(
     assert writes_of(fake, "post_inline_comments") == []
     summary = comments_with_marker(fake, "code-squad:summary:angela")[0]
     assert "Regex compiled per call far below this change" in summary
-    assert "lines are outside the changed hunks" in summary
+    assert "lines are not added lines" in summary
 
 
 def test_injected_instruction_in_the_diff_does_not_change_the_computed_verdict(

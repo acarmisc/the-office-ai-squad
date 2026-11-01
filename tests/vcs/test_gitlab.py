@@ -10,6 +10,7 @@ from code_squad._common.vcs.base import (
     InlineComment,
     StaleHeadError,
     StatusState,
+    VcsError,
 )
 from code_squad._common.vcs.gitlab import GitLabProvider
 from code_squad._common.vcs.http import HttpClient
@@ -164,3 +165,95 @@ def test_clone_url_and_oauth_credentials() -> None:
     provider = _provider()
     assert provider.clone_url("acme/web") == f"{GITLAB_BASE}/acme/web.git"
     assert provider.git_credentials("acme/web") == ("oauth2", "fake-token-for-tests")
+
+
+def test_adv07_renamed_file_position_carries_the_old_path() -> None:
+    rec = gitlab_recorder()
+    comment = InlineComment("src/new.tsx", 2, "Renamed.", old_path="src/old.tsx")
+    with serve(rec):
+        _provider().post_inline_comments(REF, HEAD, [comment], REFS)
+    position = sent_json(rec, "POST", f"{MR_PATH}/discussions")["position"]
+    assert position["old_path"] == "src/old.tsx"
+    assert position["new_path"] == "src/new.tsx"
+
+
+def test_adv07_multi_line_range_anchors_to_the_end_line() -> None:
+    rec = gitlab_recorder()
+    comment = InlineComment("src/app.tsx", 2, "Range.", start_line=1)
+    with serve(rec):
+        _provider().post_inline_comments(REF, HEAD, [comment], REFS)
+    position = sent_json(rec, "POST", f"{MR_PATH}/discussions")["position"]
+    assert position["new_line"] == 2
+    assert "line_range" not in position
+
+
+def test_adv07_rejected_context_line_is_an_empty_id_and_others_still_post() -> None:
+    rec = gitlab_recorder()
+    comments = [
+        InlineComment("src/app.tsx", 2, "Added."),
+        InlineComment("src/app.tsx", 1, "Context line."),
+    ]
+    with serve(rec):
+        ids = _provider().post_inline_comments(REF, HEAD, comments, REFS)
+    assert ids == ["d9", ""]
+
+
+def test_adv07_unexpected_status_is_not_swallowed_per_comment() -> None:
+    rec = gitlab_recorder()
+    rec.override(
+        "POST",
+        f"{MR_PATH}/discussions",
+        lambda _r: httpx.Response(401, json={"message": "401 Unauthorized"}),
+    )
+    with serve(rec), pytest.raises(VcsError):
+        _provider().post_inline_comments(
+            REF, HEAD, [InlineComment("src/app.tsx", 2, "x")], REFS
+        )
+
+
+def test_adv13_large_file_is_capped_before_decoding() -> None:
+    rec = gitlab_recorder()
+    huge = ("x" * 1000 + "\n") * 2000
+    rec.override(
+        "GET",
+        f"{PROJECT_PATH}/repository/files/src%2Fapp\\.tsx/raw",
+        lambda _r: httpx.Response(200, text=huge),
+    )
+    with serve(rec):
+        text = _provider().read_file("acme/web", "src/app.tsx", HEAD)
+    assert len(text.encode("utf-8")) <= 1_048_576 + 200
+    assert "truncated" in text
+
+
+def test_adv06_only_the_bot_note_is_updated_in_place() -> None:
+    rec = gitlab_recorder()
+    marker = "<!-- code-squad:summary:jim -->"
+    mallory = [
+        {
+            "id": 950,
+            "body": f"spoof\n{marker}",
+            "system": False,
+            "author": {"username": "mallory"},
+        }
+    ]
+    rec.override(
+        "GET", f"{MR_PATH}/notes", lambda _r: httpx.Response(200, json=mallory)
+    )
+    with serve(rec):
+        _provider().upsert_comment(REF, marker, f"real\n{marker}")
+    assert not [r for r in rec.requests if r.method == "PUT"]
+    assert [
+        r for r in rec.requests if r.method == "POST" and r.url.path.endswith("/notes")
+    ]
+
+
+def test_adv06_the_bot_note_is_still_updated() -> None:
+    rec = gitlab_recorder()
+    marker = "<!-- code-squad:summary:jim -->"
+    with serve(rec):
+        assert _provider().upsert_comment(REF, marker, f"again\n{marker}") == "900"
+    assert [
+        r
+        for r in rec.requests
+        if r.method == "PUT" and r.url.path.endswith("/notes/900")
+    ]

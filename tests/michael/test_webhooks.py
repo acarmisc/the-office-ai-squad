@@ -3,21 +3,28 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from typing import Any as _Any
 
 from fastapi.testclient import TestClient
 
-from code_squad._common.contract import Verdict
-from code_squad.michael.gateway import MichaelWiring
+from code_squad._common.config.loader import ConfigSources
+from code_squad._common.contract import InvocationRequest, Verdict
+from code_squad._common.session import JobStore, MemorySessionStore
+from code_squad._common.vcs.base import ChangeRequestRef
+from code_squad.michael.gateway import MichaelWiring, WebhookGateway, max_webhook_bytes
 from code_squad.server import create_app
-from tests.agents.support import HEAD, NUMBER, PROJECT, writes_of
+from tests.agents.support import ENV, HEAD, NUMBER, PROJECT, react_provider, writes_of
 from tests.michael.support import (
     BOT,
     GITLAB_SECRET,
     ORG_YAML,
     WEBHOOK_SECRET,
     FakeSpecialists,
+    builder_for,
+    github_secrets,
     no_model,
     result_for,
     webhook_client,
@@ -421,3 +428,136 @@ def test_trigger_events_setting_is_enforced_by_the_gateway(tmp_path: Path) -> No
         "status": "ignored",
         "reason": "event not enabled in trigger.events",
     }
+
+
+# ----- body size, help and single-flight -------------------------------------------
+
+ORG_NO_DEBOUNCE: str = "\n".join(
+    [
+        "vcs:",
+        f"  bot_username: {BOT}",
+        "trigger:",
+        "  allowed_commenters: [alice]",
+        "  debounce_seconds: 0",
+        "",
+    ]
+)
+ORG_DRY_RUN: str = ORG_YAML + "posting:\n  force_dry_run: true\n"
+
+
+def test_webhook_body_limit_is_read_from_the_environment() -> None:
+    assert max_webhook_bytes({}) == 1_048_576
+    assert max_webhook_bytes({"SQUAD_MAX_WEBHOOK_BYTES": "10"}) == 10
+    assert max_webhook_bytes({"SQUAD_MAX_WEBHOOK_BYTES": "junk"}) == 1_048_576
+    assert max_webhook_bytes({"SQUAD_MAX_WEBHOOK_BYTES": "0"}) == 1_048_576
+
+
+def test_oversized_webhook_body_is_413_before_the_signature_is_checked(
+    tmp_path: Path,
+) -> None:
+    specialists = FakeSpecialists({"jim": result_for("jim")})
+    client, fake = webhook_client(tmp_path, specialists)
+    body = json.dumps({"pad": "x" * 1_100_000}).encode("utf-8")
+    response = client.post(
+        "/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "pull_request",
+            "X-Hub-Signature-256": "sha256=not-checked",
+        },
+    )
+    assert response.status_code == 413
+    assert specialists.calls == []
+    assert fake.writes == []
+
+
+def test_squad_help_is_answered_with_a_comment_on_the_change_request(
+    tmp_path: Path,
+) -> None:
+    vcs = react_provider()
+    client, vcs = webhook_client(tmp_path, FakeSpecialists(), fake=vcs)
+    response = _post_github(
+        client, "issue_comment", _issue_comment("/squad help", "alice"), delivery="h1"
+    )
+    assert response.json()["status"] == "accepted"
+    bodies = [comment.body for comment in vcs.list_comments(_ref())]
+    assert any("Code Squad commands" in body for body in bodies)
+
+
+def test_squad_help_is_withheld_while_dry_run_is_forced(tmp_path: Path) -> None:
+    vcs = react_provider()
+    client, vcs = webhook_client(tmp_path, FakeSpecialists(), fake=vcs, org=ORG_DRY_RUN)
+    response = _post_github(
+        client, "issue_comment", _issue_comment("/squad help", "alice"), delivery="h2"
+    )
+    assert response.json()["status"] == "accepted"
+    assert not any(
+        "Code Squad commands" in comment.body for comment in vcs.list_comments(_ref())
+    )
+
+
+def test_a_change_is_not_run_twice_while_its_first_run_is_in_flight(
+    tmp_path: Path,
+) -> None:
+    gateway = _direct_gateway(tmp_path, FakeSpecialists())
+    first = gateway.handle("github", *_signed_comment("f1"))
+    assert first.status == 202 and first.job is not None
+    second = gateway.handle("github", *_signed_comment("f2"))
+    assert second.status == 202
+    assert second.body == {
+        "status": "ignored",
+        "reason": "already in flight: this change and head are being reviewed",
+    }
+    first.job()
+    third = gateway.handle("github", *_signed_comment("f3"))
+    assert third.status == 202
+    assert third.body["status"] == "accepted"
+
+
+def test_a_failed_run_releases_its_flight(tmp_path: Path) -> None:
+    def broken(_request: InvocationRequest, _agent: str) -> dict[str, _Any]:
+        raise RuntimeError("services unavailable")
+
+    gateway = _direct_gateway(tmp_path, FakeSpecialists(), services_factory=broken)
+    first = gateway.handle("github", *_signed_comment("g1"))
+    assert first.job is not None
+    first.job()
+    retry = gateway.handle("github", *_signed_comment("g2"))
+    assert retry.body["status"] == "accepted"
+
+
+def _ref() -> ChangeRequestRef:
+    return ChangeRequestRef(PROJECT, NUMBER)
+
+
+def _signed_comment(delivery: str) -> tuple[Mapping[str, str], bytes]:
+    raw = json.dumps(_issue_comment("/squad review", "alice")).encode("utf-8")
+    signature = (
+        "sha256=" + hmac.new(WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
+    )
+    headers = {
+        "X-GitHub-Event": "issue_comment",
+        "X-GitHub-Delivery": delivery,
+        "X-Hub-Signature-256": signature,
+    }
+    return headers, raw
+
+
+def _direct_gateway(
+    tmp_path: Path,
+    specialists: FakeSpecialists,
+    *,
+    services_factory: _Any = None,
+) -> WebhookGateway:
+    builder = builder_for(react_provider(), tmp_path, ORG_NO_DEBOUNCE)
+    sources = ConfigSources(
+        org_file=tmp_path / "squad.yaml", env={}, projects_dir=None, profiles_dir=None
+    )
+    return WebhookGateway(
+        env={**ENV, "WEBHOOK_PROVIDERS": "github"},
+        sources=sources,
+        jobs=JobStore(MemorySessionStore()),
+        client=specialists,
+        services_factory=services_factory or builder.build,
+        secrets=github_secrets(),
+    )

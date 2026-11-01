@@ -8,7 +8,6 @@ review:
   min_severity_inline: nit
   verdict:
     major_threshold: 1
-    request_changes_on_blocker: true
 security:
   severity_mapping:
     cvss_blocker: 7.0

@@ -3,7 +3,10 @@
 ``ServiceBuilder.build`` runs once per request and returns the ``services`` dict that
 ``run_task`` puts into the invocation context. Every step degrades on its own: a missing
 project, VCS or repository file leaves that service out and records a warning. An
-invalid organisation config fails closed: external writes are disabled for the run.
+invalid organisation config falls back to the last version that validated (with a
+warning and a reload-failure count); when there is none, or the file cannot be read,
+external writes are disabled for the run. ``summary_notes`` carries every configuration
+warning and rejected layer for the published summary.
 
 ``plan_run`` then applies the agent-level settings of the effective configuration to the
 spec and returns the posting override and the disabled flag.
@@ -11,17 +14,24 @@ spec and returns the posting override and the disabled flag.
 
 from __future__ import annotations
 
+import copy
 import os
 import re
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
-from code_squad._common.config.errors import ConfigError
+import yaml
+
+from code_squad._common.accepted_risks import PrePublishFilter, accepted_risk_filter
+from code_squad._common.config.errors import ConfigError, ConfigUnreadableError
 from code_squad._common.config.loader import (
     ConfigSources,
     EffectiveConfig,
+    apply_env_overrides,
     load_org,
     load_registry,
     repo_config_ref,
@@ -46,6 +56,7 @@ from code_squad._common.contract import (
 )
 from code_squad._common.findings import PublishOptions
 from code_squad._common.model import ModelFactory
+from code_squad._common.observability import CONFIG_RELOAD_FAILURES
 from code_squad._common.runtime import run_task
 from code_squad._common.sandbox.base import Sandbox
 from code_squad._common.sandbox.env import GitIdentity as SandboxGitIdentity
@@ -90,8 +101,18 @@ ProviderFactory = Callable[[VcsSettings], VcsProvider]
 
 REPO_CONFIG_PATH: Final = ".squad/config.yml"
 DISABLED_WARNING: Final = "agent disabled by configuration"
+LAST_GOOD_WARNING: Final = (
+    "organisation configuration failed validation; the last good version is used"
+)
+DWIGHT_AGENT: Final = "dwight"
+SUMMARY_NOTES_KEY: Final = "summary_notes"
+PRE_PUBLISH_FILTERS_KEY: Final = "pre_publish_filters"
 FORCE_DRY_RUN_WARNING: Final = (
     "posting.force_dry_run is set: external writes are disabled for this run"
+)
+KILL_SWITCH_WARNING: Final = (
+    "posting.force_dry_run is set in the invalid organisation file: external writes "
+    "are disabled and the last good configuration is used for the rest"
 )
 INVALID_ORG_WARNING: Final = (
     "organisation configuration is invalid: external writes are disabled for this run"
@@ -124,6 +145,97 @@ def sources_from_env(env: Mapping[str, str]) -> ConfigSources:
 
 def _path(env: Mapping[str, str], name: str, default: str) -> Path:
     return Path(env.get(name) or default)
+
+
+@dataclass(frozen=True)
+class _LastGoodOrg:
+    mtime_ns: int
+    raw: dict[str, Any]
+
+
+# Process-wide: the last organisation layer that validated, keyed by file path. A
+# reload that fails validation falls back to it; an unreadable file never does. The
+# failure counter moves once per broken file version, not once per invocation.
+_LAST_GOOD_ORG: dict[str, _LastGoodOrg] = {}
+_COUNTED_FAILURE: dict[str, int] = {}
+_LAST_GOOD_LOCK: Final = threading.Lock()
+
+
+def load_org_layer(sources: ConfigSources, warnings: list[str]) -> dict[str, Any]:
+    """Load the org layer, or the last good copy when the current file is invalid."""
+    path = sources.org_file
+    try:
+        raw = load_org(sources)
+    except ConfigUnreadableError:
+        raise
+    except ConfigError as exc:
+        good = _last_good(path)
+        if good is None:
+            raise
+        _count_failure(path)
+        layer = copy.deepcopy(good.raw)
+        if _kill_switch_requested(sources):
+            layer = merge_layers(layer, {"posting": {"force_dry_run": True}})
+            warnings.append(KILL_SWITCH_WARNING)
+        warnings.append(f"{LAST_GOOD_WARNING} ({exc})")
+        return layer
+    _remember_org(path, raw)
+    return raw
+
+
+def _kill_switch_requested(sources: ConfigSources) -> bool:
+    """True when the raw org file (or its env overlay) sets ``posting.force_dry_run``.
+
+    Read even when validation fails, so a broken file cannot re-enable posting.
+    """
+    path = sources.org_file
+    if path is None or not path.is_file():
+        return False
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return False
+    if not isinstance(loaded, dict):
+        return False
+    posting = apply_env_overrides(loaded, sources.env).get("posting")
+    return isinstance(posting, dict) and posting.get("force_dry_run") is True
+
+
+def _last_good(path: Path | None) -> _LastGoodOrg | None:
+    if path is None:
+        return None
+    with _LAST_GOOD_LOCK:
+        return _LAST_GOOD_ORG.get(str(path))
+
+
+def _count_failure(path: Path | None) -> None:
+    if path is None:
+        return
+    mtime_ns = _mtime_ns(path)
+    key = str(path)
+    with _LAST_GOOD_LOCK:
+        if _COUNTED_FAILURE.get(key) == mtime_ns:
+            return
+        _COUNTED_FAILURE[key] = mtime_ns
+    CONFIG_RELOAD_FAILURES.inc()
+
+
+def _mtime_ns(path: Path) -> int:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return -1
+
+
+def _remember_org(path: Path | None, raw: dict[str, Any]) -> None:
+    if path is None or not path.is_file():
+        return
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except OSError:
+        return
+    with _LAST_GOOD_LOCK:
+        _LAST_GOOD_ORG[str(path)] = _LastGoodOrg(mtime_ns, copy.deepcopy(raw))
 
 
 class RepositoryView:
@@ -212,6 +324,9 @@ class ServiceBuilder:
         services = self._build(request, agent, env)
         services.update(self._security(agent, services, env))
         services.update(self._agent_services(agent, services, env))
+        services[SUMMARY_NOTES_KEY] = services[_CONFIG_WARNINGS]
+        if agent == DWIGHT_AGENT:
+            services[PRE_PUBLISH_FILTERS_KEY] = _accepted_risk_filters(services)
         return services
 
     def _agent_services(
@@ -241,7 +356,7 @@ class ServiceBuilder:
         services: dict[str, Any] = {_CONFIG_WARNINGS: []}
         warnings: list[str] = services[_CONFIG_WARNINGS]
         try:
-            org = load_org(sources)
+            org = load_org_layer(sources, warnings)
             registry = load_registry(sources)
         except ConfigError as exc:
             warnings.append(f"{INVALID_ORG_WARNING} ({exc})")
@@ -624,6 +739,16 @@ def _payload_skills(request: InvocationRequest, agent: str) -> SkillSet:
     )
 
 
+def _accepted_risk_filters(services: Mapping[str, Any]) -> list[PrePublishFilter]:
+    effective = services.get("config")
+    risks = (
+        effective.config.security.accepted_risks
+        if isinstance(effective, EffectiveConfig)
+        else []
+    )
+    return [accepted_risk_filter(risks, date.today())]
+
+
 def _call_overrides(request: InvocationRequest) -> dict[str, Any] | None:
     pc = request.project_config
     if pc is None:
@@ -638,8 +763,6 @@ def _call_overrides(request: InvocationRequest) -> dict[str, Any] | None:
         vcs["auth"] = {"token_secret": pc.vcs_token_secret}
     if vcs:
         layer = merge_layers(layer, {"vcs": vcs})
-    if pc.llm_api_key_secret is not None:
-        layer = merge_layers(layer, {"llm": {"api_key_secret": pc.llm_api_key_secret}})
     if pc.skills_repo_path is not None:
         layer = merge_layers(layer, {"skills": {"paths": [pc.skills_repo_path]}})
     if pc.skills_ref == "head":

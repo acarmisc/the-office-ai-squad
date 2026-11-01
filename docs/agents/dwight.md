@@ -115,8 +115,7 @@ The ASVS topic is marked unverified for its edition. Check the edition before re
 | `security.cache_ttl_seconds` | `21600` | Advisory cache lifetime, per run in this version. |
 | `security.severity_mapping.*` | `kev_is_blocker` true; CVSS 9.0 and 7.0; EPSS 0.1 | Thresholds that map advisory data to severity. Lower layers may only lower them. |
 | `security.offline_mode` | `low_confidence` | `fail_incomplete` makes missing data an incomplete run. |
-| `security.accepted_risks` | `[]` | Accepted advisories with an expiry date. Expired entries are ignored with a warning. |
-| `security.local_scanners.*` | all `false` | Setting is accepted, but gitleaks, semgrep and trivy are not wired yet. |
+| `security.accepted_risks` | `[]` | Accepted advisories with an expiry date, organisation-only. `package` and `path` narrow each entry. Expired entries are ignored with a warning. |
 | `EGRESS_PROXY_URL` (environment) | unset | Outbound proxy for advisory calls. |
 | `NVD_KEY_SECRET` name `nvd-api-key` (secret) | optional | Raises the NVD rate limit. Without it the client waits 6 seconds between requests. |
 | `GHSA` token secret `ghsa-token` (secret) | optional | Used for GitHub advisory queries. |
@@ -128,7 +127,7 @@ The ASVS topic is marked unverified for its edition. Check the edition before re
 - Reachability is a search, not a call graph. The prompt asks the model to state the search scope
   when it says "not reachable". Transitive use through a framework is reported as possible, not
   excluded.
-- Local scanners are not wired, so secret scanning by pattern is the job of the model and the
+- Local scanners (gitleaks, semgrep, trivy) are not wired, so secret scanning by pattern is the job of the model and the
   change-level risk check in `michael`.
 - Every run builds its own intelligence client, so the cache and the NVD rate window are per run.
 

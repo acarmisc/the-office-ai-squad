@@ -80,11 +80,6 @@ def test_repo_examples_pass_the_committed_schema_independently(path: Path) -> No
     jsonschema.validate(_as_json(raw), _schema("squad-config.schema.json"))
 
 
-def test_baseline_example_passes_the_committed_schema_independently() -> None:
-    raw = yaml.safe_load((EXAMPLES / "repo/react-app/.squad/baseline.yml").read_text())
-    jsonschema.validate(_as_json(raw), _schema("baseline.schema.json"))
-
-
 def _sources() -> ConfigSources:
     return ConfigSources(ORG_FILE, {}, PROJECTS, PROFILES)
 

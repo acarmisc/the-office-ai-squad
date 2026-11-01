@@ -36,10 +36,10 @@ Assets that the squad does not hold: merge rights, cluster write rights, custome
 | # | Threat | Control | Status |
 | --- | --- | --- | --- |
 | T1 | Forged webhook delivery | Signature check (GitLab token, GitHub HMAC over the raw body, constant-time compare), `401` on failure | In place |
-| T2 | Replayed delivery | Delivery-id de-duplication after a final outcome | In place, per replica |
+| T2 | Replayed delivery | Delivery-id de-duplication after a final outcome; one in-flight run per change request and head, shared through the session store | In place; de-duplication is per replica unless Redis is configured |
 | T3 | Bot-loop: squad reacting to its own events | `vcs.bot_username` required; own-author events ignored | In place; a project without it is ignored |
 | T4 | Unauthorised commenter starts a run | `trigger.allowed_commenters` (empty means nobody) | In place |
-| T5 | Unauthenticated caller on `/invocations` | Shared bearer token (`SQUAD_API_TOKEN`, constant-time compare) when configured; not routed by the ingress; network policies and the Service | **Residual, operator-dependent**: open when the token is unset; one shared token with no caller identity |
+| T5 | Unauthenticated caller on `/invocations` | Shared bearer token (`SQUAD_API_TOKEN`, constant-time compare) required; with no token the endpoints refuse every request (fail closed); not routed by the ingress; network policies and the Service | **Residual**: one shared token with no caller identity; open only when an operator sets `SQUAD_ALLOW_UNAUTHENTICATED=1` |
 | T6 | `post: true` from an untrusted caller publishes | Organisation `posting.force_dry_run` overrides every request | In place when set; off by default |
 | T7 | Prompt injection through the diff, description, comments, files, logs, skills, advisories | Untrusted wrapping with random delimiters, rule in every prompt, deterministic verdict rules, guards, specialists do not publish by default | In place; model reasoning can still be swayed. See [Prompt injection](prompt-injection.md) |
 | T8 | A change edits its own review rules | Skills and repository config are read from the target branch; the head is an org opt-in with a warning | In place |
@@ -55,14 +55,14 @@ Assets that the squad does not hold: merge rights, cluster write rights, custome
 | T18 | Merge without a human | No merge capability; approval only when configured | In place |
 | T19 | Advisory data missing, verdict approves anyway | Unverified marking, guard, publish-time cap | In place |
 | T20 | Egress to unexpected hosts | Advisory host allow-list (organisation only), NetworkPolicy allow-lists, proxy option | In place when policies are enforced |
-| T21 | Config from an untrusted source | Only the platform writes the organisation file and the registry; the repository file is restricted | In place |
-| T22 | Oversized or hostile input exhausts resources | Input size limits in the contract; output caps; iteration, deadline and command budgets; per-request timeouts | In place for most paths; there is no global rate limit |
-| T23 | Telemetry leaks content | Logs carry metadata only; span attributes are an allow-list; `content_capture` is accepted but has no effect | In place |
+| T21 | Config from an untrusted source | Only the platform writes the organisation file and the registry; the repository file is restricted; accepted risks and protected-path allowances are organisation-only | In place |
+| T22 | Oversized or hostile input exhausts resources | Request and webhook body limits (the webhook limit is applied before signature checks); output caps; per-run token ceiling (`limits.max_run_tokens`); tool-call and wall-clock budgets; per-request timeouts | In place; there is no global rate limit |
+| T23 | Telemetry leaks content | Logs carry metadata only; span attributes are an allow-list; job failures log the exception type, not the message | In place |
 
 ## Residual risks
 
-1. **Unauthenticated `/invocations`** (T5). With the token unset, any pod that can reach the Service can start a review.
-   With `post: true` and no `force_dry_run`, it can publish. Set `api.tokenSecret`, mitigate with network policy, and put
+1. **Unauthenticated `/invocations`** (T5). Only an explicit `SQUAD_ALLOW_UNAUTHENTICATED=1` opens the endpoints. Then any pod
+   that can reach the Service can start a review, and with `post: true` and no `force_dry_run` it can publish. Set `api.tokenSecret`, mitigate with network policy, and put
    authentication in front of any external route (see [Ingress and webhooks](../deployment/ingress-webhooks.md)).
 2. **Shared Secret.** Every agent pod can read every key in the Secret, so a compromised agent can read the VCS tokens
    and the webhook secrets.
@@ -74,9 +74,11 @@ Assets that the squad does not hold: merge rights, cluster write rights, custome
    The kind example does this.
 6. **Advisory coverage gaps.** Packages without a feed, and Dockerfile base images, are unverified by design.
 7. **Config maps are readable** by darryl's RBAC, and their values reach the model after redaction.
-8. **In-memory state.** Job state and de-duplication are per replica. A replica restart loses in-flight jobs.
-9. **Unused security knobs.** `security.local_scanners` are accepted but not wired; `review.suppressions_enabled` is not
-   applied; baseline files are not read at run time.
+8. **In-memory state.** Job state and de-duplication are per replica unless `SESSION_STORE_URL` is set. The in-process store
+   holds 10,000 entries and can evict a live in-flight claim, so use Redis for any production deployment. A replica restart
+   loses in-flight jobs.
+9. **Accepted but not wired.** Configuration keys that were not applied at run time were removed from the schema in ADR 0013.
+   The remaining declared-but-unapplied keys are listed in the [handoff](../HANDOFF.md).
 10. **No extra CA or identity layer.** Private certificate authorities and an identity provider in front of the squad are
     deployment work, not features of the platform.
 

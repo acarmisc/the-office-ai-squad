@@ -56,3 +56,32 @@ and reloaded on `SIGHUP`. A failed reload keeps the last good configuration, inc
 `squad_config_reload_failures_total` and logs a warning. A broken file is reported once, not on
 every poll. Kubernetes updates ConfigMap mounts in place, so no restart is needed; set
 `config.restartOnChange` in the chart only if you want a rolling restart instead.
+
+## How one key is resolved
+
+The layers are applied from the lowest to the highest. For each key, the policy in the schema decides whether a layer may set it.
+A layer that breaks a rule is dropped as a whole, the reason is recorded, and the layers below it still apply.
+
+```mermaid
+flowchart TD
+  START["Layer L sets key K"] --> POLICY{"policy of K"}
+  POLICY -- "free" --> SET["take the value; record L as the source"]
+  POLICY -- "org_only" --> ORG{"L is the organisation file or the registry?"}
+  ORG -- "no" --> DROP["drop layer L as a whole; record the reason"]
+  ORG -- "yes" --> SET
+  POLICY -- "tighten_only" --> STRICT{"at least as strict as the value below?"}
+  STRICT -- "no" --> DROP
+  STRICT -- "yes" --> SET
+  POLICY -- "mergeable list" --> UNION["union with the lists below; nothing is removed"]
+  SET --> NEXT["next layer, up to the call overrides"]
+  UNION --> NEXT
+  DROP --> NEXT
+  NEXT --> DONE["effective value, provenance, config_hash"]
+```
+
+Two consequences for operators:
+
+- A repository file cannot loosen the platform's setting by editing its own file. Its whole layer is dropped instead, so the team sees
+  the warning in the review summary, not a silent partial change.
+- `squad config explain <project> --repo-config <file>` runs the same resolution on your workstation. Run it before you push a
+  repository file.

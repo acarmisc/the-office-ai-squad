@@ -7,12 +7,13 @@ incomplete. It never raises a verdict.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Mapping, Sequence
+from datetime import date
 from typing import Any, Final
 
+from code_squad._common.accepted_risks import accepted_risk_filter
 from code_squad._common.config.schema import AcceptedRisk
-from code_squad._common.contract import Finding, InvocationResult, RunStatus, Verdict
+from code_squad._common.contract import InvocationResult, RunStatus, Verdict
 from code_squad.dwight.deps.parsers import is_manifest
 from code_squad.dwight.tools import INCOMPLETE_FLAG, RepoFiles
 
@@ -36,7 +37,7 @@ def offline_verdict_guard(
     return result.model_copy(
         update={
             "verdict": Verdict.COMMENT,
-            "warnings": [*result.warnings, APPROVE_WITHHELD],
+            "warnings": _with_new(result.warnings, [APPROVE_WITHHELD]),
         }
     )
 
@@ -44,22 +45,13 @@ def offline_verdict_guard(
 def accepted_risk_guard(
     result: InvocationResult, services: Mapping[str, Any]
 ) -> InvocationResult:
-    active = _risks(services.get("accepted_risks"))
-    kept: list[Finding] = []
-    notes: list[str] = []
-    for finding in result.findings:
-        risk = _accepting(finding, active)
-        if risk is None:
-            kept.append(finding)
-        else:
-            notes.append(
-                f"accepted risk: {risk.id} until {risk.expires.isoformat()}: "
-                f"{risk.reason}"
-            )
+    """Drop findings an organisation risk accepts, within its package and path scope."""
+    keep = accepted_risk_filter(_risks(services.get("accepted_risks")), date.today())
+    kept, notes = keep(result.findings)
     if not notes:
         return result
     return result.model_copy(
-        update={"findings": kept, "warnings": [*result.warnings, *notes]}
+        update={"findings": kept, "warnings": _with_new(result.warnings, notes)}
     )
 
 
@@ -97,30 +89,25 @@ def _mark_incomplete(result: InvocationResult) -> InvocationResult:
         update={
             "status": RunStatus.INCOMPLETE,
             "verdict": Verdict.INCOMPLETE,
-            "warnings": [*result.warnings, INCOMPLETE_NOTE],
+            "warnings": _with_new(result.warnings, [INCOMPLETE_NOTE]),
         }
     )
 
 
 def _note(result: InvocationResult, text: str) -> InvocationResult:
-    return result.model_copy(update={"warnings": [*result.warnings, text]})
+    return result.model_copy(update={"warnings": _with_new(result.warnings, [text])})
+
+
+def _with_new(existing: Sequence[str], new: Sequence[str]) -> list[str]:
+    """Appends each warning once, so a guard that runs again adds no duplicate."""
+    merged = list(existing)
+    for text in new:
+        if text not in merged:
+            merged.append(text)
+    return merged
 
 
 def _risks(value: object) -> tuple[AcceptedRisk, ...]:
     if not isinstance(value, Sequence) or isinstance(value, str):
         return ()
     return tuple(item for item in value if isinstance(item, AcceptedRisk))
-
-
-def _accepting(finding: Finding, risks: Sequence[AcceptedRisk]) -> AcceptedRisk | None:
-    for risk in risks:
-        if finding.rule_id == risk.id or any(
-            _mentions(ref, risk.id) for ref in finding.references
-        ):
-            return risk
-    return None
-
-
-def _mentions(text: str, identifier: str) -> bool:
-    pattern = rf"(?<![A-Za-z0-9]){re.escape(identifier)}(?![A-Za-z0-9])"
-    return re.search(pattern, text, re.IGNORECASE) is not None

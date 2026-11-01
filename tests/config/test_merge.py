@@ -130,10 +130,41 @@ def test_repo_cannot_read_skills_from_head() -> None:
     assert any("skills.ref" in r for r in reasons)
 
 
-def test_repo_cannot_change_ops_or_observability_endpoints() -> None:
+def test_repo_cannot_change_ops_or_the_llm_gateway() -> None:
     assert _reasons(_base(), {"ops": {"prometheus_url": "https://p.example"}})
-    assert _reasons(_base(), {"observability": {"content_capture": "FULL"}})
     assert _reasons(_base(), {"llm": {"base_url": "https://gw.example"}})
+
+
+@pytest.mark.parametrize("layer", ["repo", "call"])
+def test_accepted_risks_are_org_only_at_repo_and_call_layers(layer: Layer) -> None:
+    overlay = {
+        "security": {
+            "accepted_risks": [
+                {"id": "CVE-2024-1", "reason": "x", "expires": "2099-01-01"}
+            ]
+        }
+    }
+    assert any("accepted_risks" in r for r in _reasons(_base(), overlay, layer))
+
+
+@pytest.mark.parametrize("layer", ["repo", "call"])
+def test_model_and_protected_path_allowances_are_org_only(layer: Layer) -> None:
+    assert _reasons(_base(), {"llm": {"allowed_models": ["any-model"]}}, layer)
+    overlay = {"implementer": {"allowed_protected_paths": ["infra/**"]}}
+    assert _reasons(_base(), overlay, layer)
+
+
+def test_allowed_assigners_can_only_shrink() -> None:
+    base = _base(trigger__allowed_assigners=["alice", "bob"])
+    assert _reasons(base, {"trigger": {"allowed_assigners": ["bob"]}}) == []
+    assert any(
+        "allowed_assigners" in r
+        for r in _reasons(base, {"trigger": {"allowed_assigners": ["mallory"]}})
+    )
+
+
+def test_allowed_assigners_cannot_be_added_when_org_has_none() -> None:
+    assert _reasons(_base(), {"trigger": {"allowed_assigners": ["alice"]}})
 
 
 # ---------- tighten_only: tools, commenters, sources
@@ -185,13 +216,6 @@ def test_repo_may_tighten_approve_mode(value: str) -> None:
     assert _reasons(base, {"vcs": {"approve_mode": value}}) == []
 
 
-def test_repo_cannot_turn_off_request_changes_on_blocker() -> None:
-    reasons = _reasons(
-        _base(), {"review": {"verdict": {"request_changes_on_blocker": False}}}
-    )
-    assert any("request_changes_on_blocker" in r for r in reasons)
-
-
 def test_repo_cannot_enable_specialist_posting() -> None:
     assert _reasons(_base(), {"routing": {"specialists_post": True}})
 
@@ -212,39 +236,52 @@ def test_routing_size_thresholds_may_only_be_lowered() -> None:
     assert _reasons(_base(), {"routing": {"size_thresholds": {"high": 5000}}})
 
 
-def test_llm_budget_cap_cannot_be_raised_or_removed() -> None:
-    capped = _base(llm__budget_usd_per_day=100.0)
-    assert _reasons(capped, {"llm": {"budget_usd_per_day": 50.0}}) == []
-    assert _reasons(capped, {"llm": {"budget_usd_per_day": 150.0}})
-    assert _reasons(capped, {"llm": {"budget_usd_per_day": None}})
-
-
-def test_llm_budget_cap_may_be_set_when_none_is_inherited() -> None:
-    assert _reasons(_base(), {"llm": {"budget_usd_per_day": 75.0}}) == []
-
-
 # ---------- tighten_only: ceilings
 
 
 def test_budget_above_platform_limits_is_rejected() -> None:
-    reasons = _reasons(_base(), {"agents": {"dwight": {"budgets": {"tokens": 250000}}}})
+    overlay = {"agents": {"dwight": {"budgets": {"wall_clock_seconds": 2400}}}}
+    reasons = _reasons(_base(), overlay)
     assert any(
-        "agents.dwight.budgets.tokens" in r and "limits.max_tokens" in r
+        "agents.dwight.budgets.wall_clock_seconds" in r
+        and "limits.max_wall_clock_seconds" in r
         for r in reasons
     )
 
 
-def test_budget_at_platform_limit_is_allowed() -> None:
-    assert (
-        _reasons(_base(), {"agents": {"dwight": {"budgets": {"tokens": 200000}}}}) == []
-    )
+def test_budget_equal_to_the_inherited_value_is_allowed() -> None:
+    base = _base(agents__dwight__budgets__wall_clock_seconds=1800)
+    overlay = {"agents": {"dwight": {"budgets": {"wall_clock_seconds": 1800}}}}
+    assert _reasons(base, overlay) == []
+
+
+@pytest.mark.parametrize(
+    "overlay",
+    [
+        {"agents": {"dwight": {"budgets": {"tool_calls": 150}}}},
+        {"agents": {"dwight": {"budgets": {"wall_clock_seconds": 1000}}}},
+        {"skills": {"max_skills": 25}},
+        {"skills": {"max_total_bytes": 100000}},
+    ],
+)
+def test_numeric_limits_cannot_be_raised_above_the_inherited_value(
+    overlay: dict[str, Any],
+) -> None:
+    assert _reasons(_base(), overlay)
+
+
+def test_numeric_limits_may_be_lowered_by_a_lower_layer() -> None:
+    overlay = {
+        "agents": {"dwight": {"budgets": {"tool_calls": 50}}},
+        "skills": {"max_skills": 10},
+    }
+    assert _reasons(_base(), overlay) == []
 
 
 @pytest.mark.parametrize(
     ("overlay", "ceiling"),
     [
         ({"budgets": {"wall_clock_seconds": 9999}}, "limits.max_wall_clock_seconds"),
-        ({"budgets": {"tool_calls": 999}}, "limits.max_tool_calls"),
         ({"max_iterations": 99}, "limits.max_iterations"),
         ({"max_tokens": 999999}, "limits.max_tokens"),
     ],
@@ -273,92 +310,6 @@ def test_skill_limits_cannot_exceed_platform_ceilings() -> None:
 def test_sandbox_timeout_cannot_exceed_platform_wall_clock() -> None:
     reasons = _reasons(_base(), {"implementer": {"sandbox": {"timeout_seconds": 7200}}})
     assert any("limits.max_wall_clock_seconds" in r for r in reasons)
-
-
-# ---------- floor rules
-
-
-def test_repo_cannot_disable_a_floor_rule() -> None:
-    reasons = _reasons(
-        _base(), {"agents": {"dwight": {"disabled_rules": ["SEC-INJ-001"]}}}
-    )
-    assert any("floor rule" in r and "SEC-INJ-001" in r for r in reasons)
-
-
-def test_repo_cannot_downgrade_a_floor_rule() -> None:
-    reasons = _reasons(
-        _base(),
-        {"agents": {"dwight": {"severity_overrides": {"sec-xss-001": "major"}}}},
-    )
-    assert any("cannot be downgraded" in r for r in reasons)
-
-
-def test_repo_can_disable_a_non_floor_rule_and_raise_a_floor_rule() -> None:
-    overlay = {
-        "agents": {
-            "dwight": {
-                "disabled_rules": ["DWIGHT-STYLE-010"],
-                "severity_overrides": {
-                    "SEC-INJ-001": "blocker",
-                    "DWIGHT-STYLE-010": "nit",
-                },
-            }
-        }
-    }
-    assert _reasons(_base(), overlay) == []
-
-
-# ---------- secret references
-
-
-def test_secret_reference_outside_allowed_patterns_is_rejected() -> None:
-    reasons = _reasons(_base(), {"llm": {"api_key_secret": "Prod.Token"}})
-    assert any("outside secrets.allowed_patterns" in r for r in reasons)
-
-
-def test_secret_reference_inside_allowed_patterns_is_accepted() -> None:
-    assert _reasons(_base(), {"llm": {"api_key_secret": "llm-key"}}) == []
-
-
-def test_secret_check_uses_the_org_patterns() -> None:
-    base = _base(secrets__allowed_patterns=["^team-[a-z]+$"])
-    assert _reasons(base, {"llm": {"api_key_secret": "llm-key"}})
-    assert _reasons(base, {"llm": {"api_key_secret": "team-llm"}}) == []
-
-
-# ---------- layers and messages
-
-
-def test_the_same_rules_apply_to_call_overrides() -> None:
-    reasons = _reasons(
-        _base(), {"vcs": {"base_url": "https://x.example"}}, layer="call"
-    )
-    assert any("call layer" in r for r in reasons)
-    loosened = _reasons(_base(), {"vcs": {"approve_mode": "approve"}}, layer="call")
-    assert any("the call layer may not loosen" in r for r in loosened)
-
-
-def test_floor_severity_override_to_blocker_is_fine() -> None:
-    assert (
-        _reasons(
-            _base(),
-            {
-                "agents": {
-                    "dwight": {"severity_overrides": {"SEC-DESER-001": "blocker"}}
-                }
-            },
-        )
-        == []
-    )
-
-
-def test_no_violations_for_a_plain_tightening_overlay() -> None:
-    overlay = {
-        "review": {"min_confidence_to_publish": "low", "max_findings": 10},
-        "trigger": {"skip_draft": True},
-        "implementer": {"protected_paths": [".github/**"]},
-    }
-    assert _reasons(_base(), overlay) == []
 
 
 # ---------- routing.always_run cannot be disabled by a lower layer
@@ -392,3 +343,21 @@ def test_disabling_an_agent_outside_always_run_is_allowed(layer: Layer) -> None:
 
 def test_restating_an_always_run_agent_as_enabled_is_allowed() -> None:
     assert _reasons(_base(), {"agents": {"dwight": {"enabled": True}}}) == []
+
+
+def test_the_same_rules_apply_to_call_overrides() -> None:
+    reasons = _reasons(
+        _base(), {"vcs": {"base_url": "https://x.example"}}, layer="call"
+    )
+    assert any("call layer" in r for r in reasons)
+    loosened = _reasons(_base(), {"vcs": {"approve_mode": "approve"}}, layer="call")
+    assert any("the call layer may not loosen" in r for r in loosened)
+
+
+def test_no_violations_for_a_plain_tightening_overlay() -> None:
+    overlay = {
+        "review": {"min_confidence_to_publish": "low", "max_findings": 10},
+        "trigger": {"skip_draft": True},
+        "implementer": {"protected_paths": [".github/**"]},
+    }
+    assert _reasons(_base(), overlay) == []

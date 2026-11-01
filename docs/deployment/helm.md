@@ -34,6 +34,10 @@ installing.
 
 ## Install
 
+For a first install, follow the step-by-step [Deploy to Kubernetes](../getting-started/deploy-to-kubernetes.md) guide. Release
+artifacts, tags and digests are in [Images, charts and releases](images-and-releases.md). It starts from a
+minimal values file in dry-run mode, creates the secrets and verifies the install. The commands below are the general form.
+
 ```bash
 kubectl create namespace code-squad
 kubectl create namespace code-squad-sandbox
@@ -57,7 +61,8 @@ differs. The examples are listed below.
 | `llm` | Gateway URL and the Secret key for the gateway key | `LLM_BASE_URL` and `LLM_API_KEY` are set from here. |
 | `vcs` | Default provider and base URL | `provider: auto` infers only for github.com and gitlab.com. Set `gitlab` or `github` for self-managed hosts. |
 | `secrets.existingSecret` | Name of the Secret mounted at `/var/run/secrets/squad` | Every agent mounts the whole Secret. |
-| `api.tokenSecret.name`, `api.tokenSecret.key` | Optional shared bearer token for `/invocations` and `/jobs/{id}` | Empty means no token check. Set on every agent as `SQUAD_API_TOKEN`; see [Authentication](#authentication). |
+| `api.tokenSecret.name`, `api.tokenSecret.key` | Shared bearer token for `/invocations` and `/jobs/{id}` | Required unless `api.allowUnauthenticated` is true. Set on every agent as `SQUAD_API_TOKEN`; see [Authentication](#authentication). |
+| `api.allowUnauthenticated` | Keep `/invocations` and `/jobs/{id}` open without a token | Default `false`. `true` renders `SQUAD_ALLOW_UNAUTHENTICATED=1` on every agent. Local demos only. |
 | `config.org` | Organisation file content (`squad.yaml`) | Free-form YAML, rendered verbatim. |
 | `config.projects` | Project registry content (`projects.yaml`) | Free-form YAML, rendered verbatim. |
 | `config.restartOnChange` | Roll pods when config changes | Off: files are hot-reloaded. |
@@ -72,7 +77,7 @@ differs. The examples are listed below.
 | `serviceAccount` | One ServiceAccount per agent, or one shared name | Annotations for workload identity. |
 | `networkPolicy` | DNS, LLM gateway, VCS, OTLP, proxy, session store, advisory and API-server CIDRs | Hostnames are not allowed in NetworkPolicy; use CIDRs or the proxy. |
 | `devops` | Namespaces where darryl may read, or cluster-wide read | Keep in step with `ops.allowed_namespaces` in the org file. |
-| `sandbox` | Sandbox namespace, image, resources, deadline and TTL | Enables the Kubernetes sandbox for pam. |
+| `sandbox` | Sandbox namespace, image, resources, deadline and TTL | Enables the Kubernetes sandbox for pam. pam refuses to start with the sandbox off unless `ALLOW_LOCAL_SANDBOX=1`. |
 | `podSecurityContext`, `containerSecurityContext` | Restricted Pod Security settings | Non-root, read-only root filesystem, no capabilities. |
 
 ### Webhooks
@@ -95,8 +100,10 @@ api:
     key: api-token
 ```
 
-With the token unset, each pod logs one warning at start-up and the endpoints are open. Network policy and the
-ingress are then the only protection. See [Hardening](../security/hardening.md#api-authentication).
+The token is required. With `api.tokenSecret.name` empty and `api.allowUnauthenticated` left at `false`, every agent
+refuses `/invocations` and `/jobs/{id}` with `401`, so the install fails closed. `api.allowUnauthenticated: true`
+renders `SQUAD_ALLOW_UNAUTHENTICATED=1` on every agent and opens both endpoints. Use it only for a local demo, such as
+`values-examples/minimal-kind.yaml`. See [Hardening](../security/hardening.md#api-authentication).
 
 ### Keys to keep consistent
 
@@ -130,6 +137,10 @@ webhooks:
     enabled: true
   github:
     enabled: true
+api:
+  tokenSecret:
+    name: code-squad-api
+    key: api-token
 ingress:
   enabled: true
   className: nginx

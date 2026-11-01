@@ -55,11 +55,14 @@ def test_env_overrides_the_org_file(tmp_path: Path) -> None:
     org = load_org(
         _sources(
             tmp_path,
-            "agents:\n  dwight:\n    model: haiku-5-5\n    language: fr\n",
+            "agents:\n  dwight:\n    model: haiku-5-5\n    fallback_model: haiku-5-5\n",
             {"SQUAD__AGENTS__DWIGHT__MODEL": "sonnet-5-5"},
         )
     )
-    assert org["agents"]["dwight"] == {"model": "sonnet-5-5", "language": "fr"}
+    assert org["agents"]["dwight"] == {
+        "model": "sonnet-5-5",
+        "fallback_model": "haiku-5-5",
+    }
 
 
 def test_only_squad_prefixed_variables_are_read(tmp_path: Path) -> None:
@@ -110,8 +113,8 @@ def test_org_file_with_unknown_key_fails(tmp_path: Path) -> None:
 
 def test_org_file_cross_checks_platform_ceilings(tmp_path: Path) -> None:
     text = (
-        "limits:\n  max_tokens: 1000\n"
-        "agents:\n  dwight:\n    budgets:\n      tokens: 5000\n"
+        "limits:\n  max_wall_clock_seconds: 600\n"
+        "agents:\n  dwight:\n    budgets:\n      wall_clock_seconds: 900\n"
     )
     with pytest.raises(ConfigError, match="platform ceiling"):
         load_org(_sources(tmp_path, text, {}))

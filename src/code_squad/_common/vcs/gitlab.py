@@ -25,6 +25,9 @@ from code_squad._common.vcs.base import (
     StaleHeadError,
     StatusState,
     VcsError,
+    bounded_text,
+    is_comment_rejection,
+    same_login,
 )
 from code_squad._common.vcs.diff import parse_patch
 from code_squad._common.vcs.http import HttpClient, as_dict, as_list, tail_text
@@ -61,6 +64,7 @@ class GitLabProvider:
         self._api = f"{self._root}/api/v4"
         self._token = token
         self._http = http or HttpClient(provider="gitlab")
+        self._login: str | None = None
 
     def whoami(self) -> BotIdentity:
         data = as_dict(self._get(f"{self._api}/user"))
@@ -91,7 +95,7 @@ class GitLabProvider:
         response = self._http.request(
             "GET", url, headers=self._headers(), params={"ref": ref}
         )
-        return response.text
+        return bounded_text(response.content)
 
     def list_tree(self, project: str, path: str, ref: str) -> list[str]:
         url = self._proj_url(project, "/repository/tree")
@@ -136,7 +140,13 @@ class GitLabProvider:
         ids: list[str] = []
         for comment in comments:
             body = {"body": comment.body, "position": _position(comment, diff_refs)}
-            data = as_dict(self._post(self._mr_url(ref, "/discussions"), body))
+            try:
+                data = as_dict(self._post(self._mr_url(ref, "/discussions"), body))
+            except VcsError as exc:
+                if not is_comment_rejection(exc):
+                    raise
+                ids.append("")
+                continue
             ids.append(str(data["id"]))
         return ids
 
@@ -303,11 +313,22 @@ class GitLabProvider:
             raise StaleHeadError(f"change request head moved to {current[:12]}")
 
     def _find_note(self, ref: ChangeRequestRef, marker: str) -> str | None:
+        bot = self._bot_login()
         for raw in self._list(self._mr_url(ref, "/notes")):
             note = as_dict(raw)
-            if not note.get("system") and marker in str(note.get("body") or ""):
+            author = str(as_dict(note.get("author") or {}).get("username") or "")
+            if (
+                not note.get("system")
+                and same_login(author, bot)
+                and marker in str(note.get("body") or "")
+            ):
                 return str(note["id"])
         return None
+
+    def _bot_login(self) -> str:
+        if self._login is None:
+            self._login = self.whoami().username
+        return self._login
 
     def _user_id(self, username: str) -> int:
         users = self._list(f"{self._api}/users", {"username": username})
@@ -405,7 +426,7 @@ def _position(comment: InlineComment, refs: DiffRefs) -> dict[str, Any]:
         "base_sha": refs.base_sha,
         "start_sha": refs.start_sha,
         "head_sha": refs.head_sha,
-        "old_path": comment.path,
+        "old_path": comment.old_path or comment.path,
         "new_path": comment.path,
     }
     if comment.side == "RIGHT":

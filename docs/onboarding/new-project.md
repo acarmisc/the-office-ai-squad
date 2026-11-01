@@ -3,6 +3,25 @@
 Use this list to bring one repository under review. It takes a dry run first, so nothing is posted until
 the team has seen what the squad would say. Each step names the file or command it changes.
 
+## The flow at a glance
+
+```mermaid
+flowchart LR
+  A["1. Bot identity"] --> B["2. Secret names"]
+  B --> C["3. Register the project"]
+  C --> D["4. Connect the trigger"]
+  D --> E["5. Repository config .squad/config.yml"]
+  E --> F["6. Skills, optional"]
+  F --> G["7. Dry-run trial"]
+  G --> H{"findings right with the team?"}
+  H -- "no: adjust skills or thresholds" --> G
+  H -- "yes" --> I["8. Go live: force_dry_run false"]
+  I --> J["9. Watch and tune"]
+```
+
+Steps 1 to 3 are platform work and need the platform team. Steps 5 to 7 are repository work and need the project team. Step 7 is the
+gate: nothing is posted until it passes.
+
 ## Before you start
 
 - [ ] The platform is deployed and `GET /ready` returns `200` for `michael` (see [Helm](../deployment/helm.md)).

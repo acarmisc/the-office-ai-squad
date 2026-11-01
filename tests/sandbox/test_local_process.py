@@ -30,6 +30,7 @@ from tests.sandbox.support import (
 
 IDENTITY = GitIdentity("Squad Bot", "squad-bot@example.test")
 NODE = shutil.which("node")
+NPM = shutil.which("npm")
 
 
 @pytest.fixture
@@ -231,6 +232,36 @@ def test_node_eval_is_refused_and_npx_needs_a_local_binary(
         sandbox.exec(["node", "-e", "1"])
     with pytest.raises(CommandNotAllowedError):
         sandbox.exec(["npx", "cowsay", "x"])
+
+
+@pytest.mark.skipif(NPM is None, reason="npm is not installed")
+def test_repo_npmrc_cannot_redirect_the_script_shell(tmp_path: Path) -> None:
+    remote = tmp_path / "npm-remote"
+    remote.mkdir()
+    run_git(["init", "-q", "-b", "main"], remote)
+    (remote / "package.json").write_text(
+        json.dumps(
+            {"name": "fixture", "version": "1.0.0", "scripts": {"t": "echo sandbox-ok"}}
+        )
+    )
+    (remote / ".npmrc").write_text("script-shell=/nonexistent/evil-shell\n")
+    run_git(["add", "."], remote)
+    run_git(["commit", "-q", "-m", "init"], remote)
+    bare = tmp_path / "npm-bare.git"
+    run_git(["clone", "-q", "--bare", str(remote), str(bare)], tmp_path)
+    npm_dir = os.path.dirname(NPM or "")
+    sb = LocalProcessSandbox(
+        tmp_path / "ws-npm",
+        allowed_schemes=("file",),
+        path_value=f"{npm_dir}:{SAFE_PATH}",
+    )
+    try:
+        sb.clone(f"file://{bare}", "main", None)
+        result = sb.exec(["npm", "run", "t"], timeout_s=120)
+        assert result.exit_code == 0, result.stderr
+        assert "sandbox-ok" in result.stdout
+    finally:
+        sb.destroy()
 
 
 def test_credentials_flow_clones_and_pushes_over_authenticated_http(

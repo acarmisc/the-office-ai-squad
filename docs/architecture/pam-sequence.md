@@ -21,14 +21,14 @@ sequenceDiagram
   Caller->>P: POST /invocations (mode implementer, project, prompt or task)
   P->>VCS: read task (get_task) and repository files (read only)
   P->>Model: plan and implementation turns (untrusted content wrapped)
-  P->>SBX: start_work: clone base branch, create pam/<task-key>-<slug>
+  P->>SBX: start_work: clone base branch, create pam/{task-key}-{slug}
   loop small steps until checks pass or the budget ends
     P->>SBX: write_file or apply_patch, sandbox_read or sandbox_diff
     P->>SBX: run_checks (repository check recipe or package scripts)
     SBX-->>P: pass or fail, first relevant error line
   end
   P->>SBX: commit (refuse changes to protected paths unless "allow")
-  P->>SBX: push_branch (no arguments; never a protected branch; never forced)
+  P->>SBX: push_branch (no arguments, never a protected branch, never forced)
   SBX->>VCS: git push over HTTPS, credentials from an askpass file
   P->>VCS: open_change_request (labels, reviewers, assignees, draft as configured)
   VCS-->>P: change request URL

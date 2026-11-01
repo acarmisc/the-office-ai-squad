@@ -1,5 +1,9 @@
 {{- $root := . -}}
 {{- $ns := include "code-squad.namespace" . -}}
+{{- $michael := index $root.Values.agents "michael" -}}
+{{- if and $michael.enabled (not $root.Values.sessionStore.url) (or $root.Values.hpa.enabled (gt (int $michael.replicas) 1)) -}}
+{{- fail "michael keeps webhook and run state in process: set sessionStore.url (SESSION_STORE_URL) before running more than one michael replica or enabling hpa" -}}
+{{- end -}}
 {{- range $id := splitList " " (include "code-squad.agentIds" .) }}
 {{- $agent := index $root.Values.agents $id }}
 {{- if $agent.enabled }}
@@ -108,6 +112,10 @@ spec:
                 secretKeyRef:
                   name: {{ . | quote }}
                   key: {{ $root.Values.api.tokenSecret.key | quote }}
+            {{- end }}
+            {{- if $root.Values.api.allowUnauthenticated }}
+            - name: SQUAD_ALLOW_UNAUTHENTICATED
+              value: "1"
             {{- end }}
             {{- if eq $id "michael" }}
             - name: ORCHESTRATOR_SPECIALIST_URLS

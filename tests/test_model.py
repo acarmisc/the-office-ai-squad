@@ -88,3 +88,16 @@ def test_litellm_tags_order_and_optional_project() -> None:
         "team:web",
     ]
     assert litellm_tags("dwight", None, []) == ["squad:code-squad", "agent:dwight"]
+
+
+def test_caller_tags_in_reserved_namespaces_are_dropped() -> None:
+    from code_squad._common.model import dropped_caller_tags
+
+    extra = ["squad:forged", "project:other", "agent:angela", "team:web"]
+    assert litellm_tags("jim", "group/repo", extra) == [
+        "squad:code-squad",
+        "agent:jim",
+        "project:group/repo",
+        "team:web",
+    ]
+    assert dropped_caller_tags(extra) == ["squad", "project", "agent"]

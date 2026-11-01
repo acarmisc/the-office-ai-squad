@@ -18,6 +18,7 @@ describes. For how to add one, see the [contributing guide](../contributing/inde
 | [0010](0010-orchestrator-single-publication-path.md) | Single publication path through the orchestrator | accepted | 2026-11-01 | Specialists return findings; michael publishes one summary and one status; any incomplete specialist makes the verdict incomplete. |
 | [0011](0011-vcs-abstraction.md) | VCS abstraction: protocol, capability flags, GitHub App first, no merge | accepted | 2026-11-01 | One `VcsProvider` protocol with capability flags and warned fallbacks; GitHub App preferred over a token; a conformance suite every provider passes; no merge operation. |
 | [0012](0012-agent-naming.md) | Agent naming: The Office ids, one mapping, functional role names | accepted | 2026-11-01 | Six lowercase ids from The Office; one mapping in `registry.py`; functional role names in docs and prompts; no persona humour. |
+| [0013](0013-operational-readiness.md) | Operational readiness after the adversarial review | accepted | 2026-11-01 | One publication pipeline with an `incomplete` outcome; fail-closed API authentication and body limits; dry-run and kill-switch fixes; org-only accepted risks; removal of unenforced keys; the first operational test runs dry first. |
 
 ## How the ADRs relate
 
@@ -31,8 +32,8 @@ describes. For how to add one, see the [contributing guide](../contributing/inde
 
 These points are recorded as open in the decisions themselves. They are collected in the [handoff](../HANDOFF.md#open-decisions).
 
-- Whether `review.ignore_globs` and `security.accepted_risks` should be organisation-only (ADR 0003, ADR 0009).
-- Restricting accepted risks to the organisation layer (ADR 0009).
-- A process-wide intelligence service keyed by the security configuration, so the NVD rate window and the caches are shared (ADR 0009).
+- Whether `review.ignore_globs` should be organisation-only (ADR 0003). `security.accepted_risks` is organisation-only since ADR 0013.
+- Shared review context across specialists, prompt caching and supersede-cancel of in-flight runs (ADR 0013, deferred).
 - Whether the orchestrator should ever submit a formal approval (ADR 0010).
 - Job-based sandbox pods, so orphaned pods are deleted (ADR 0005).
+- The persistent job queue and live-model evaluation for dwight, darryl and pam (ADR 0013, deferred until the first operational test has evidence).

@@ -90,7 +90,6 @@ config:
     vcs:
       provider: gitlab
       approve_mode: none
-      status_mode: commit_status
       comment_style: summary
   projects:
     # Single GitLab group, one project entry with a glob.

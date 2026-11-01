@@ -269,6 +269,9 @@
               "minLength": 1
             }
           }
+        },
+        "allowUnauthenticated": {
+          "type": "boolean"
         }
       }
     },

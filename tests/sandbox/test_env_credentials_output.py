@@ -50,6 +50,13 @@ def test_scrubbed_env_pins_git_configuration_and_protocols() -> None:
     assert env["GIT_TERMINAL_PROMPT"] == "0"
 
 
+def test_scrubbed_env_pins_npm_configuration_outside_the_workspace() -> None:
+    env = scrubbed_env(home="/h", tmp="/t")
+    assert env["NPM_CONFIG_USERCONFIG"] == os.devnull
+    assert env["NPM_CONFIG_GLOBALCONFIG"] == "/h/.npmrc-global"
+    assert env["npm_config_script_shell"] == "/bin/sh"
+
+
 def test_identity_is_added_only_when_given() -> None:
     env = scrubbed_env(
         home="/h",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
@@ -23,23 +24,28 @@ class TtlCache[K, V]:
         self._max = max_entries
         self._clock = clock
         self._entries: OrderedDict[K, tuple[float, V]] = OrderedDict()
+        # The cache is shared by every invocation in the process.
+        self._lock = threading.Lock()
 
     def get(self, key: K) -> V | None:
-        entry = self._entries.get(key)
-        if entry is None:
-            return None
-        expires_at, value = entry
-        if self._clock() >= expires_at:
-            del self._entries[key]
-            return None
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            expires_at, value = entry
+            if self._clock() >= expires_at:
+                del self._entries[key]
+                return None
         CVE_CACHE_HITS.inc()
         return value
 
     def put(self, key: K, value: V) -> None:
-        self._entries[key] = (self._clock() + self._ttl, value)
-        self._entries.move_to_end(key)
-        while len(self._entries) > self._max:
-            self._entries.popitem(last=False)
+        with self._lock:
+            self._entries[key] = (self._clock() + self._ttl, value)
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._max:
+                self._entries.popitem(last=False)
 
     def __len__(self) -> int:
-        return len(self._entries)
+        with self._lock:
+            return len(self._entries)

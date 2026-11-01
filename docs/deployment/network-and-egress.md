@@ -7,6 +7,41 @@ allow it, and what happens when it is blocked.
 NetworkPolicies match IP blocks only, so host names cannot be written in them. Either resolve each service to its
 address range and keep those ranges current, or route the traffic through an egress proxy and allow only the proxy.
 
+## Topology
+
+The chart renders one NetworkPolicy per agent, each starting from default deny. The diagram shows the allowed flows; each label names
+the chart value that opens it.
+
+```mermaid
+flowchart LR
+  ING["ingress controller namespace"] -- "443: webhook paths only" --> M
+  subgraph NS["namespace code-squad (default deny per agent)"]
+    M["michael"]
+    J["jim"]
+    A["angela"]
+    D["dwight"]
+    DA["darryl"]
+    P["pam"]
+  end
+  M -- "8080: specialist calls" --> J & A & D & DA & P
+  M -- "443: llmGatewayCIDRs" --> GW["LLM gateway"]
+  J & A & D & DA & P -- "443: llmGatewayCIDRs" --> GW
+  M & J & A & D & DA & P -- "443: vcsCIDRs" --> VCS["GitLab or GitHub"]
+  D -- "443: advisoryCIDRs" --> ADV["OSV, NVD, GHSA, KEV, EPSS"]
+  DA -- "443 or 6443: kubeAPIServerCIDRs" --> API["Kubernetes API server"]
+  P -- "443 or 6443: kubeAPIServerCIDRs" --> API
+  M & J & A & D & DA & P -. "4317 or 4318: otlpCIDRs" .-> OTEL["OTLP collector"]
+  M & J & A & D & DA & P -. "53: DNS selectors" .-> DNS["kube-dns"]
+  subgraph SBX["namespace code-squad-sandbox (restricted Pod Security)"]
+    SP["sandbox pods, one per pam run"]
+  end
+  P -- "create, exec, delete" --> SP
+  SP -- "443: sandbox.allowedEgressCIDRs" --> REG["git host and package registry"]
+```
+
+The sandbox namespace has its own policy. It allows no ingress at all: pam reaches a sandbox pod through the Kubernetes API (create,
+exec, delete), not through the pod network. The pods egress only to DNS and to the destinations in `sandbox.allowedEgressCIDRs`.
+
 ## Destinations
 
 | Destination | Who | Protocol and port | Chart value | Required |

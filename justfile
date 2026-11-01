@@ -62,6 +62,7 @@ run-local agent:
 
 invoke agent prompt url="http://localhost:8080":
     curl -sS -X POST {{url}}/invocations -H 'content-type: application/json' \
+      ${SQUAD_API_TOKEN:+-H "authorization: Bearer ${SQUAD_API_TOKEN}"} \
       -d "$(jq -n --arg p '{{prompt}}' '{prompt:$p, post:false}')"
 
 kind-up:
@@ -75,3 +76,9 @@ compose-smoke:
 
 eval *args:
     uv run python -m eval.run {{args}}
+
+# Re-record the demo transcripts (docs/assets/casts) and animations (docs/assets/demos).
+# Skips the compose smoke demo when the compose stack is not running.
+demos *args:
+    uv run python scripts/record_demos.py {{args}}
+    uv run pytest -q tests/test_demos.py -o addopts=

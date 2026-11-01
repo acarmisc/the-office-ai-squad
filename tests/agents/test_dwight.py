@@ -3,13 +3,15 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import httpx
+import pytest
 import respx
 from fastapi.testclient import TestClient
 
@@ -18,6 +20,12 @@ from code_squad._common.config.schema import (
     AcceptedRisk,
     SecurityConfig,
     SecuritySources,
+)
+from code_squad._common.contract import (
+    Finding,
+    InvocationResult,
+    RunStatus,
+    Verdict,
 )
 from code_squad._common.fake_model import ScriptedModel, ToolCall, Turn
 from code_squad._common.model import ModelFactory
@@ -28,7 +36,7 @@ from code_squad._common.tool_policy import tool_name, unclassified
 from code_squad._common.vcs.fake import FakeVcsProvider
 from code_squad.dwight import SPEC
 from code_squad.dwight.deps.model import Package
-from code_squad.dwight.guard import UNVERIFIED
+from code_squad.dwight.guard import UNVERIFIED, accepted_risk_guard
 from code_squad.dwight.intel.epss import EPSS_URL, EpssClient
 from code_squad.dwight.intel.ghsa import GhsaClient
 from code_squad.dwight.intel.http import IntelHttp
@@ -36,7 +44,11 @@ from code_squad.dwight.intel.kev import KEV_URL, KevCatalog
 from code_squad.dwight.intel.nvd import NVD_BASE_URL, NvdClient
 from code_squad.dwight.intel.osv import OsvClient
 from code_squad.dwight.intel.service import IntelService
-from code_squad.dwight.services import build_intel_service, security_services
+from code_squad.dwight.services import (
+    build_intel_service,
+    reset_intel_services,
+    security_services,
+)
 from code_squad.server import create_app
 from tests.agents.support import (
     HEAD,
@@ -582,6 +594,93 @@ def test_injection_in_a_cve_description_stays_inside_untrusted_blocks(
     for text in carriers:
         blocks = _untrusted_blocks(text)
         assert any(CVE_INJECTION in block for block in blocks), text
+
+
+@pytest.fixture(autouse=True)
+def _fresh_intel_services() -> Iterator[None]:
+    reset_intel_services()
+    yield
+    reset_intel_services()
+
+
+def test_same_security_config_reuses_one_intel_service() -> None:
+    first = build_intel_service(None, _Vault(), env={})
+    assert build_intel_service(SecurityConfig(), _Vault(), env={}) is first
+
+
+def test_concurrent_builds_share_one_intel_service() -> None:
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        built = list(
+            pool.map(lambda _: build_intel_service(None, _Vault(), env={}), range(32))
+        )
+    assert all(item is built[0] for item in built)
+
+
+def test_security_config_or_secret_presence_selects_the_service() -> None:
+    base = build_intel_service(None, _Vault(), env={})
+    narrower = SecurityConfig(allowed_hosts=["api.osv.dev"])
+    assert build_intel_service(narrower, _Vault(), env={}) is not base
+    with_nvd = _Vault({"nvd-api-key": FAKE_NVD_KEY})
+    assert build_intel_service(None, with_nvd, env={}) is not base
+
+
+def test_scoped_accepted_risk_does_not_suppress_another_package() -> None:
+    lodash = Finding(
+        **finding_dict(
+            rule_id="SEC-DEP-001",
+            agent="dwight",
+            title="lodash prototype pollution",
+            references=["GHSA-aaaa-bbbb-cccc"],
+        )
+    )
+    axios = Finding(
+        **finding_dict(
+            rule_id="SEC-DEP-002",
+            agent="dwight",
+            title="axios SSRF in redirect handling",
+            references=["GHSA-aaaa-bbbb-cccc"],
+        )
+    )
+    risk = AcceptedRisk(
+        id="GHSA-aaaa-bbbb-cccc",
+        reason="lodash patch pending",
+        expires=date(2099, 1, 1),
+        package="lodash",
+    )
+    result = InvocationResult(
+        agent="dwight",
+        status=RunStatus.COMPLETE,
+        verdict=Verdict.COMMENT,
+        summary="done",
+        findings=[lodash, axios],
+        warnings=[],
+    )
+    out = accepted_risk_guard(result, {"accepted_risks": (risk,)})
+    assert [item.title for item in out.findings] == [axios.title]
+    assert any("lodash patch pending" in w for w in out.warnings)
+
+
+def test_accepted_risk_note_is_not_repeated_when_the_guard_runs_again() -> None:
+    finding = Finding(**finding_dict(rule_id="GHSA-aaaa-bbbb-cccc", agent="dwight"))
+    note = "accepted risk: GHSA-aaaa-bbbb-cccc until 2099-01-01: reviewed"
+    result = InvocationResult(
+        agent="dwight",
+        status=RunStatus.COMPLETE,
+        verdict=Verdict.COMMENT,
+        summary="done",
+        findings=[finding],
+        warnings=[note],
+    )
+    services = {
+        "accepted_risks": (
+            AcceptedRisk(
+                id="GHSA-aaaa-bbbb-cccc", reason="reviewed", expires=date(2099, 1, 1)
+            ),
+        )
+    }
+    out = accepted_risk_guard(result, services)
+    assert out.findings == []
+    assert out.warnings.count(note) == 1
 
 
 def test_build_intel_service_does_no_network_at_build_time() -> None:

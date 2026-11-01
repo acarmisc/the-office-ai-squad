@@ -1,0 +1,375 @@
+name: release
+
+# Publishes code-squad for a semver tag: both images (multi-arch, with provenance and
+# SBOM), the Helm chart as an OCI artifact and a GitHub Release. Re-run an existing tag with
+# workflow_dispatch. Maintainer procedure: docs/deployment/images-and-releases.md
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish, for example v0.1.0"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: "release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify tag and run the gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+      commit: ${{ steps.tag.outputs.commit }}
+      short_sha: ${{ steps.tag.outputs.short_sha }}
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: "${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}"
+          persist-credentials: false
+
+      - name: Resolve and validate the tag
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$REF_NAME"
+          fi
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'
+          if [[ ! "$tag" =~ $semver ]]; then
+            echo "::error::'$tag' is not a release tag. Use vMAJOR.MINOR.PATCH, optionally with a pre-release suffix such as v0.2.0-rc.1."
+            exit 1
+          fi
+          version="${tag#v}"
+          prerelease=false
+          if [[ "$version" == *-* ]]; then
+            prerelease=true
+          fi
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "short_sha=$(git rev-parse --short=7 HEAD)"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag (pre-release: $prerelease) from $(git rev-parse HEAD)"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Check the version in the source
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          uv run --frozen python - "$VERSION" <<'PY'
+          import re
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          import yaml
+
+          version = sys.argv[1]
+          project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          chart = yaml.safe_load(Path("deploy/helm/code-squad/Chart.yaml").read_text(encoding="utf-8"))["appVersion"]
+          init_text = Path("src/code_squad/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r'^__version__ = "([^"]+)"', init_text, re.MULTILINE)
+          package = match.group(1) if match else "missing"
+          found = {
+              "pyproject.toml project.version": str(project),
+              "deploy/helm/code-squad/Chart.yaml appVersion": str(chart),
+              "src/code_squad/__init__.py __version__": package,
+          }
+          stale = {name: value for name, value in found.items() if value != version}
+          if stale:
+              for name, value in stale.items():
+                  print(f"::error::{name} is {value!r}, but the tag needs {version!r}")
+              print(
+                  f"::error::Tag v{version} does not match the source. Bump the version before tagging: "
+                  "set project.version in pyproject.toml and __version__ in src/code_squad/__init__.py, "
+                  f"run `uv run python scripts/bump_image.py --version {version}` (it sets the Chart.yaml "
+                  "version and appVersion), commit, then tag again."
+              )
+              sys.exit(1)
+          print(f"version {version} matches pyproject.toml, Chart.yaml appVersion and __init__.py")
+          PY
+
+      - name: Install just
+        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6 # v2.0.0
+
+      - name: Install Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Run the gate
+        run: just check
+
+  images:
+    name: image ${{ matrix.image }}
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: code-squad
+            dockerfile: deploy/Dockerfile
+            description: "code-squad agents: one image for every role, AGENT_NAME selects it"
+          - image: code-squad-sandbox-node
+            dockerfile: deploy/sandbox-node.Dockerfile
+            description: "code-squad sandbox: git and a Node LTS toolchain, no credentials"
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ needs.verify.outputs.tag }}
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Compute the lowercase image name
+        id: owner
+        env:
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          echo "name=ghcr.io/${OWNER,,}/${IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags and labels
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ steps.owner.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.verify.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.verify.outputs.tag }},enable=${{ needs.verify.outputs.prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ needs.verify.outputs.prerelease == 'false' }}
+            type=raw,value=sha-${{ needs.verify.outputs.short_sha }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.verify.outputs.commit }}
+            org.opencontainers.image.version=${{ needs.verify.outputs.version }}
+            org.opencontainers.image.licenses=LicenseRef-Proprietary
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.owner.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record the image references with digests
+        env:
+          IMAGE: ${{ steps.owner.outputs.name }}
+          MATRIX_IMAGE: ${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          mkdir -p refs
+          {
+            printf '%s@%s\n' "$IMAGE" "$DIGEST"
+            while IFS= read -r ref; do
+              if [ -n "$ref" ]; then
+                printf '%s@%s\n' "$ref" "$DIGEST"
+              fi
+            done <<< "$TAGS"
+          } > "refs/${MATRIX_IMAGE}.txt"
+          cat "refs/${MATRIX_IMAGE}.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the image references
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-refs-${{ matrix.image }}
+          path: refs/${{ matrix.image }}.txt
+          if-no-files-found: error
+
+  chart:
+    name: helm chart
+    needs: [verify, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ needs.verify.outputs.tag }}
+          persist-credentials: false
+
+      - name: Install Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+
+      - name: Package the chart
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          helm package deploy/helm/code-squad --version "$VERSION" --app-version "$VERSION" --destination dist
+          ls -l dist
+
+      - name: Push the chart to GHCR as OCI
+        env:
+          OWNER: ${{ github.repository_owner }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          GH_USER: ${{ github.actor }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          owner="${OWNER,,}"
+          echo "$TOKEN" | helm registry login ghcr.io --username "$GH_USER" --password-stdin
+          helm push "dist/code-squad-${VERSION}.tgz" "oci://ghcr.io/${owner}/charts" | tee push.log
+          digest="$(awk '/^Digest:/ {print $2}' push.log)"
+          if [ -z "$digest" ]; then
+            echo "::error::helm push did not print a digest"
+            exit 1
+          fi
+          echo "chart: oci://ghcr.io/${owner}/charts/code-squad:${VERSION}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the chart package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chart
+          path: dist/code-squad-*.tgz
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: [verify, images, chart]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.verify.outputs.tag }}
+      VERSION: ${{ needs.verify.outputs.version }}
+      PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ needs.verify.outputs.tag }}
+          persist-credentials: false
+
+      - name: Download the image references
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: image-refs-*
+          path: dist/refs
+          merge-multiple: true
+
+      - name: Download the chart package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: chart
+          path: dist/chart
+
+      - name: Collect the release assets and notes
+        run: |
+          set -euo pipefail
+          cat dist/refs/*.txt | sort > dist/images.txt
+          cp dist/chart/code-squad-*.tgz dist/
+          # Section for this version in CHANGELOG.md, from its heading to the next "## " heading.
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > dist/notes.md
+          if [ -s dist/notes.md ]; then
+            echo "Release notes: CHANGELOG.md section [$VERSION]"
+          else
+            echo "No CHANGELOG.md section for [$VERSION]; falling back to generated notes"
+          fi
+          cat dist/images.txt
+
+      - name: Create or update the GitHub Release
+        run: |
+          set -euo pipefail
+          assets=(dist/code-squad-*.tgz dist/images.txt)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+            edit=(gh release edit "$TAG" --title "code-squad $TAG" --prerelease="$PRERELEASE")
+            if [ -s dist/notes.md ]; then
+              edit+=(--notes-file dist/notes.md)
+            fi
+            "${edit[@]}"
+          else
+            create=(gh release create "$TAG" --verify-tag --title "code-squad $TAG")
+            if [ "$PRERELEASE" = "true" ]; then
+              create+=(--prerelease)
+            fi
+            if [ -s dist/notes.md ]; then
+              create+=(--notes-file dist/notes.md)
+            else
+              create+=(--generate-notes)
+            fi
+            "${create[@]}" "${assets[@]}"
+          fi

@@ -20,7 +20,11 @@ import yaml
 from pydantic import ValidationError
 
 from code_squad._common.config.bootstrap import single_project_entry
-from code_squad._common.config.errors import ConfigError, problems_of
+from code_squad._common.config.errors import (
+    ConfigError,
+    ConfigUnreadableError,
+    problems_of,
+)
 from code_squad._common.config.merge import Violation, check_restricted, merge_layers
 from code_squad._common.config.projects import ProjectRegistry
 from code_squad._common.config.schema import (
@@ -135,7 +139,9 @@ def load_org(sources: ConfigSources) -> dict[str, Any]:
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as exc:
-            raise ConfigError(f"cannot read org config {path}: {exc}") from exc
+            raise ConfigUnreadableError(
+                f"cannot read org config {path}: {exc}"
+            ) from exc
         loaded = load_yaml(text, f"org config {path}")
         if loaded is not None:
             if not isinstance(loaded, dict):

@@ -169,6 +169,8 @@ topics are trusted, bundled guidelines.
 | `vcs.bot_username` | unset | Required. Without it every webhook event is ignored. |
 | `trigger.on_push` | `false` | Also review new pushes to an open change request. |
 | `trigger.allowed_commenters` | `[]` (nobody) | Users whose comments may start a run. Lower layers may only narrow it. |
+| `trigger.allowed_assigners` | `[]` (nobody) | Users whose issue assignment to the bot may start a pam run. Lower layers may only narrow it. |
+| `trigger.skip_bot_authors` | `false` | Skip change requests and comments from other bots. The bot's own events are always ignored whatever the setting. |
 | `trigger.skip_draft` | `true` | Skip draft change requests. |
 | `trigger.skip_labels` | `[skip-squad]` | Skip change requests with these labels. |
 | `trigger.debounce_seconds` | `30` | Collapses bursts for one head into one run. |
@@ -187,9 +189,10 @@ topics are trusted, bundled guidelines.
 
 - Specialist results are only as good as the specialists. `michael` does not re-rate severities.
 - Draft changes, skip labels, unauthorised commenters, the bot's own events, and other bots' events are skipped, as configured.
-- The `/squad help` command is ignored in this version and returns `202` with a reason.
-- Job state and webhook de-duplication are in memory per replica. See
-  [Scaling and upgrades](../deployment/scaling-upgrades.md).
+- `/squad help` posts the command list as a general note. When `SQUAD_DOCS_URL` is set, the reply links to it.
+- Job state is in the session store (memory by default, Redis with `SESSION_STORE_URL`). Webhook de-duplication and the
+  debounce are in memory per replica. See [Scaling and upgrades](../deployment/scaling-upgrades.md).
+- `trigger.skip_bot_authors` defaults to `false`. Events from other bots are then reviewed; the bot's own events are always ignored.
 - The publication step has no journal. A retried job repeats the same steps, which are idempotent by marker.
 
 ## Known weaknesses

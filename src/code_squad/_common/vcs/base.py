@@ -3,11 +3,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Literal, Protocol
+from typing import Final, Literal, Protocol
 
 FileStatus = Literal["added", "modified", "deleted", "renamed"]
 ReviewEvent = Literal["COMMENT", "REQUEST_CHANGES", "APPROVE"]
 ApproveMode = Literal["none", "comment", "approve"]
+MAX_FILE_BYTES: Final = 1_048_576
+_NOT_A_COMMENT_REJECTION: Final = frozenset({401, 403, 404, 429})
 
 
 class StatusState(StrEnum):
@@ -58,6 +60,27 @@ class RateLimitedError(VcsError):
 
 class StaleHeadError(VcsError):
     pass
+
+
+def is_comment_rejection(error: VcsError) -> bool:
+    """A 4xx about one comment (bad position), not auth, rate or a missing resource."""
+    code = error.status_code
+    if isinstance(error, (StaleHeadError, RateLimitedError)) or code is None:
+        return False
+    return 400 <= code < 500 and code not in _NOT_A_COMMENT_REJECTION
+
+
+def bounded_text(raw: bytes) -> str:
+    """Decode at most ``MAX_FILE_BYTES``; a longer file ends with a marker."""
+    if len(raw) <= MAX_FILE_BYTES:
+        return raw.decode("utf-8", errors="replace")
+    head = raw[:MAX_FILE_BYTES].decode("utf-8", errors="ignore")
+    return f"{head}\n[truncated: file exceeds {MAX_FILE_BYTES} bytes]"
+
+
+def same_login(author: str, bot: str) -> bool:
+    """Logins are case-insensitive on both hosts; an empty bot matches nothing."""
+    return bool(bot) and author.casefold() == bot.casefold()
 
 
 class ProtectedBranchError(VcsError):
@@ -175,10 +198,18 @@ class RateLimit:
 
 @dataclass(frozen=True)
 class InlineComment:
+    """One inline comment. ``line`` is the end of the range; ``start_line`` the start.
+
+    GitHub sends ``start_line``/``line`` for a multi-line range. GitLab anchors to
+    ``line`` only. ``old_path`` is the pre-rename path, used by GitLab positions.
+    """
+
     path: str
     line: int
     body: str
     side: Literal["RIGHT", "LEFT"] = "RIGHT"
+    old_path: str | None = None
+    start_line: int | None = None
 
 
 class VcsProvider(Protocol):
@@ -213,7 +244,9 @@ class VcsProvider(Protocol):
         head_sha: str,
         comments: Sequence[InlineComment],
         diff_refs: DiffRefs,
-    ) -> list[str]: ...
+    ) -> list[str]:
+        """One id per comment, in order; ``""`` when the VCS rejected it (4xx)."""
+        ...
 
     def post_summary(self, ref: ChangeRequestRef, body: str) -> str: ...
 

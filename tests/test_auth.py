@@ -65,3 +65,11 @@ def test_bearer_header_with_the_token_matches(header: str) -> None:
 )
 def test_anything_else_does_not_match(header: str | None) -> None:
     assert not bearer_matches(header, _TOKEN)
+
+
+def test_unauthenticated_access_needs_the_explicit_flag() -> None:
+    from code_squad._common.auth import unauthenticated_allowed
+
+    assert unauthenticated_allowed({"SQUAD_ALLOW_UNAUTHENTICATED": "1"}) is True
+    assert unauthenticated_allowed({"SQUAD_ALLOW_UNAUTHENTICATED": "yes"}) is False
+    assert unauthenticated_allowed({}) is False

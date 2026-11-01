@@ -1,8 +1,0 @@
-# yaml-language-server: $schema=../../../../schemas/baseline.schema.json
-# Findings accepted for now. Every entry needs a reason and an expiry date; expired
-# entries are ignored and reported as warnings.
-accepted:
-  - rule_id: REACT-HOOKS-004
-    file: src/legacy/Table.tsx
-    reason: Legacy table is being replaced in the next quarter; tracked in WEB-412.
-    expires: 2027-03-31

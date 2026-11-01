@@ -41,7 +41,7 @@ def test_inline_comments_are_one_batched_review() -> None:
             ],
             REFS,
         )
-    assert ids == ["906"]
+    assert ids == ["906", "906"]
     sent = sent_json(rec, "POST", f"{REPO_PATH}/pulls/42/reviews")
     assert sent["commit_id"] == HEAD
     assert sent["event"] == "COMMENT"
@@ -194,3 +194,125 @@ def test_clone_url_maps_api_host_to_github_com() -> None:
     assert _provider().clone_url("acme/web") == "https://github.com/acme/web.git"
     ghes = GitHubProvider("https://ghe.example.test/api/v3", auth=TokenAuth("t"))
     assert ghes.clone_url("acme/web") == "https://ghe.example.test/acme/web.git"
+
+
+class _AppIdentity(TokenAuth):
+    kind = "app"
+
+
+def _app_provider() -> GitHubProvider:
+    return GitHubProvider(
+        GITHUB_BASE,
+        auth=_AppIdentity("fake-token-for-tests"),
+        http=HttpClient(sleep=lambda _s: None),
+    )
+
+
+def test_adv06_github_app_identity_is_the_slug_with_bot_suffix() -> None:
+    with serve(github_recorder()):
+        assert _app_provider().whoami().username == "code-squad[bot]"
+
+
+def test_adv06_a_github_app_does_not_edit_a_comment_by_a_plain_login() -> None:
+    rec = github_recorder()
+    marker = "<!-- code-squad:summary:jim -->"
+    with serve(rec):
+        _app_provider().upsert_comment(REF, marker, f"again\n{marker}")
+    assert not [r for r in rec.requests if r.method == "PATCH"]
+    assert sent_json(rec, "POST", f"{REPO_PATH}/issues/42/comments")["body"].startswith(
+        "again"
+    )
+
+
+def test_adv06_a_github_app_edits_its_own_comment() -> None:
+    rec = github_recorder()
+    marker = "<!-- code-squad:summary:jim -->"
+    own = [
+        {
+            "id": 900,
+            "body": f"earlier\n{marker}",
+            "user": {"login": "code-squad[bot]"},
+        }
+    ]
+    rec.override(
+        "GET",
+        rf"{REPO_PATH}/issues/42/comments",
+        lambda _r: httpx.Response(200, json=own),
+    )
+    with serve(rec):
+        assert _app_provider().upsert_comment(REF, marker, f"new\n{marker}") == "900"
+    assert [r for r in rec.requests if r.method == "PATCH"]
+
+
+def test_adv07_multi_line_range_sends_start_line_and_line() -> None:
+    rec = github_recorder()
+    review = load_json("github", "review_created.json")
+    rec.override(
+        "POST",
+        rf"{REPO_PATH}/pulls/42/reviews",
+        lambda _r: httpx.Response(200, json=review),
+    )
+    comment = InlineComment("src/app.tsx", 3, "range", start_line=2)
+    with serve(rec):
+        _provider().post_inline_comments(REF, HEAD, [comment], REFS)
+    sent = sent_json(rec, "POST", f"{REPO_PATH}/pulls/42/reviews")
+    assert sent["comments"] == [
+        {
+            "path": "src/app.tsx",
+            "line": 3,
+            "side": "RIGHT",
+            "body": "range",
+            "start_line": 2,
+            "start_side": "RIGHT",
+        }
+    ]
+
+
+def test_adv07_renamed_file_is_addressed_by_its_new_path() -> None:
+    rec = github_recorder()
+    comment = InlineComment("src/app.tsx", 2, "renamed", old_path="src/old.tsx")
+    with serve(rec):
+        _provider().post_inline_comments(REF, HEAD, [comment], REFS)
+    sent = sent_json(rec, "POST", f"{REPO_PATH}/pulls/42/reviews")
+    assert sent["comments"][0]["path"] == "src/app.tsx"
+
+
+def test_adv07_rejected_comment_falls_back_per_comment_and_keeps_the_others() -> None:
+    rec = github_recorder()
+    comments = [
+        InlineComment("src/app.tsx", 2, "good"),
+        InlineComment("src/app.tsx", 1, "context"),
+    ]
+    with serve(rec):
+        ids = _provider().post_inline_comments(REF, HEAD, comments, REFS)
+    assert ids == ["906", ""]
+    reviews = [r for r in rec.requests if r.url.path.endswith("/pulls/42/reviews")]
+    assert len(reviews) == 3
+
+
+def test_adv06_github_comment_by_another_login_with_marker_is_not_edited() -> None:
+    rec = github_recorder()
+    marker = "<!-- code-squad:summary:jim -->"
+    spoof = [{"id": 950, "body": f"x\n{marker}", "user": {"login": "mallory"}}]
+    rec.override(
+        "GET",
+        rf"{REPO_PATH}/issues/42/comments",
+        lambda _r: httpx.Response(200, json=spoof),
+    )
+    with serve(rec):
+        _provider().upsert_comment(REF, marker, f"real\n{marker}")
+    assert not [r for r in rec.requests if r.method == "PATCH"]
+
+
+def test_adv13_large_file_is_capped_before_decoding() -> None:
+    rec = github_recorder()
+    huge = ("y" * 1000 + "\n") * 2000
+    rec.override(
+        "GET",
+        rf"{REPO_PATH}/contents/src/app\.tsx",
+        lambda _r: httpx.Response(200, text=huge),
+    )
+    with serve(rec):
+        text = _provider().read_file("acme/web", "src/app.tsx", HEAD)
+    assert len(text.encode("utf-8")) <= 1_048_576 + 200
+    assert "truncated" in text

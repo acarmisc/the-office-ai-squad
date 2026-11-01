@@ -1,0 +1,59 @@
+name: Bug report
+description: Something the squad does wrong, in the code or the documentation
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security vulnerabilities here. Follow [SECURITY.md](../../SECURITY.md).
+        Remove tokens, prompts, diffs and customer data from anything you paste.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Agent behaviour or verdict
+        - HTTP API or webhooks
+        - Configuration (organisation, registry, repository file)
+        - VCS provider (GitLab or GitHub)
+        - Helm chart or Kubernetes
+        - Docker Compose or local run
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps. A dry-run request or a scripted test is ideal.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release tag, the image digest, or the output of `git rev-parse --short HEAD`.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Result and logs
+      description: The `warnings`, `status` and `stats.config_hash` from the result, and the matching log lines with secrets removed.
+      render: text
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Kubernetes version and CNI, Python version, or the Compose setup. Leave out anything that identifies a customer.

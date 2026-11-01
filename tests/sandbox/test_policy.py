@@ -102,8 +102,62 @@ def test_git_refuses_clone_push_config_and_dangerous_options(argv: list[str]) ->
 @pytest.mark.parametrize(
     "argv",
     [
+        ["git", "add", "--pathspec-from-file=/etc/hostname"],
+        ["git", "add", "--pathspec-file-nul", "--pathspec-from-file=x"],
+        ["git", "add", "--pathspec-from-file", "/proc/self/environ"],
+        ["git", "diff", "-O/etc/hostname"],
+        ["git", "diff", "-O", "orderfile"],
+        ["git", "status", "-C", "/tmp"],
+        ["git", "status", "-ccore.pager=cat"],
+        ["git", "diff", "-c", "core.pager=cat"],
+        ["git", "log", "--config-env=core.pager=X"],
+        ["git", "config", "--get", "core.pager"],
+        ["git", "-c", "core.pager=cat", "status"],
+    ],
+)
+def test_git_refuses_read_capable_and_config_altering_options(argv: list[str]) -> None:
+    with pytest.raises(CommandNotAllowedError):
+        _ok(argv)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["git", "commit", "-F", "/etc/hostname"],
+        ["git", "commit", "--file=/etc/hostname"],
+        ["git", "commit", "--template=/etc/hostname", "-m", "x"],
+        ["git", "commit", "--allow-empty-message", "-m", "x"],
+        ["git", "commit", "-a", "-m", "x"],
+        ["git", "commit", "--amend", "-m", "x"],
+        ["git", "commit", "-m", "x", "--no-verify"],
+    ],
+)
+def test_git_commit_accepts_only_the_message_options(argv: list[str]) -> None:
+    with pytest.raises(CommandNotAllowedError):
+        _ok(argv)
+
+
+def test_git_commit_accepts_message_and_quiet() -> None:
+    assert _ok(["git", "commit", "-q", "-m", "fix: x"]) == (
+        "git",
+        "commit",
+        "-q",
+        "-m",
+        "fix: x",
+    )
+    assert _ok(["git", "commit", "--message=fix: x"]) == (
+        "git",
+        "commit",
+        "--message=fix: x",
+    )
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
         ["git", "status"],
         ["git", "switch", "-c", "feature/x"],
+        ["git", "checkout", "-b", "feature/x"],
         ["git", "add", "--", "."],
         ["git", "commit", "-m", "fix: thing"],
         ["git", "diff", "--no-ext-diff", "HEAD"],

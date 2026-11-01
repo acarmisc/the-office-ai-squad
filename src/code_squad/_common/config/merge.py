@@ -26,7 +26,6 @@ from code_squad._common.config.meta import (
 from code_squad._common.config.schema import (
     APPROVE_ORDER,
     DEFAULT_SECRET_PATTERNS,
-    FLOOR_RULES,
     SquadFields,
 )
 from code_squad._common.tool_policy import TOOL_POLICY, ToolClass
@@ -209,8 +208,6 @@ def _check_leaf(
                         f"secret name {name!r} is outside secrets.allowed_patterns",
                     )
                 )
-    if meta.floor:
-        out.extend(_floor_violations(path, value, layer))
     if meta.tool_names and isinstance(value, list):
         for name in value:
             if _is_external_write(str(name)):
@@ -230,26 +227,6 @@ def _check_leaf(
 
 def _is_external_write(name: str) -> bool:
     return TOOL_POLICY.get(name) is ToolClass.EXTERNAL_WRITE
-
-
-def _floor_violations(path: str, value: Any, layer: Layer) -> list[Violation]:
-    found: list[Violation] = []
-    if isinstance(value, list):
-        for rule in value:
-            if str(rule).strip().upper() in FLOOR_RULES:
-                found.append(Violation(path, f"floor rule {rule} cannot be disabled"))
-    elif isinstance(value, dict):
-        for rule, severity in value.items():
-            if str(rule).strip().upper() not in FLOOR_RULES:
-                continue
-            if str(severity) != "blocker":
-                found.append(
-                    Violation(
-                        path,
-                        f"floor rule {rule} cannot be downgraded in the {layer} layer",
-                    )
-                )
-    return found
 
 
 def _check_tighten(

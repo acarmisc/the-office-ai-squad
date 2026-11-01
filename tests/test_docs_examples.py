@@ -6,7 +6,6 @@ A fenced block directly preceded by one of these markers is validated:
   restricted-layer rules as a repository layer over the built-in defaults.
 - ``<!-- validate: config:org -->``: an organisation file (SquadConfig).
 - ``<!-- validate: projects -->``: a project registry file (ProjectsFile).
-- ``<!-- validate: baseline -->``: an accepted-findings file (Baseline).
 - ``<!-- validate: invocation -->``: a request body (InvocationRequest, JSON).
 - ``<!-- validate: helm-values -->``: a values overlay, merged over values.yaml and
   checked against the chart's values.schema.json.
@@ -28,7 +27,6 @@ from pydantic import ValidationError
 
 from code_squad._common.config.merge import check_restricted
 from code_squad._common.config.schema import (
-    Baseline,
     ProjectsFile,
     RepoConfig,
     SquadConfig,
@@ -41,7 +39,7 @@ DOCS: Final[Path] = ROOT / "docs"
 EXAMPLES: Final[Path] = ROOT / "examples"
 CHART: Final[Path] = ROOT / "deploy" / "helm" / "code-squad"
 _MARKER: Final = re.compile(
-    r"^<!-- validate: (config:org|config|projects|baseline|invocation|helm-values) -->$"
+    r"^<!-- validate: (config:org|config|projects|invocation|helm-values) -->$"
 )
 _REQUIRED_KINDS: Final = frozenset(
     {"config", "config:org", "invocation", "helm-values"}
@@ -141,8 +139,6 @@ def validate_block(block: DocBlock) -> None:
         SquadConfig.model_validate(raw)
     elif block.kind == "projects":
         ProjectsFile.model_validate(raw)
-    elif block.kind == "baseline":
-        Baseline.model_validate(raw)
     elif block.kind == "config":
         repo = RepoConfig.model_validate(raw)
         overlay = repo.model_dump(mode="json", exclude_unset=True)

@@ -88,6 +88,7 @@ GIT_SUBCOMMANDS: Final = frozenset(
 _GIT_REFUSED: Final = {
     "clone": "use Sandbox.clone",
     "push": "use Sandbox.push",
+    "config": "git config can change how git runs and is not available",
 }
 _GIT_DENIED_LONG: Final = (
     "--config-env",
@@ -100,6 +101,8 @@ _GIT_DENIED_LONG: Final = (
     "--no-index",
     "--open-files-in-pager",
     "--output",
+    "--pathspec-file-nul",
+    "--pathspec-from-file",
     "--receive-pack",
     "--super-prefix",
     "--template",
@@ -108,6 +111,14 @@ _GIT_DENIED_LONG: Final = (
     "--upload-pack",
     "--work-tree",
 )
+# -C (directory), -F (file), -O (order file) read or redirect paths; any -c or -c<value>
+# sets configuration, except that switch, checkout and branch use -c to create or copy a
+# branch.
+_GIT_DENIED_SHORT: Final = frozenset("CFO")
+_GIT_BRANCH_C_SUBCOMMANDS: Final = frozenset({"switch", "checkout", "branch"})
+_GIT_COMMIT_LONG: Final = frozenset({"--message", "--quiet"})
+_GIT_COMMIT_SHORT: Final = frozenset({"-q", "-m"})
+_GIT_CORE_SETTING: Final = re.compile(r"core\.[A-Za-z]", re.IGNORECASE)
 _PACKAGE_MANAGER_SUBCOMMANDS: Final = {
     "npm": frozenset({"run", "run-script", "test", "install", "i", "ci"}),
     "pnpm": frozenset({"run", "test", "install", "i"}),
@@ -201,8 +212,40 @@ def _check_git(items: list[str]) -> tuple[str, ...]:
         raise CommandNotAllowedError(f"git {sub} is not available: {_GIT_REFUSED[sub]}")
     if sub not in GIT_SUBCOMMANDS:
         raise CommandNotAllowedError(f"git subcommand not allowed: {sub!r}")
-    _reject_options(items[2:], _GIT_DENIED_LONG, short_letters="F")
+    _check_git_options(sub, items[2:])
     return tuple(items)
+
+
+def _check_git_options(sub: str, args: Sequence[str]) -> None:
+    for arg in args:
+        if arg == "--":
+            return
+        if arg.startswith("--"):
+            _check_git_long(sub, arg)
+        elif arg.startswith("-") and len(arg) > 1:
+            _check_git_short(sub, arg)
+
+
+def _check_git_long(sub: str, arg: str) -> None:
+    name = arg.split("=", 1)[0]
+    if any(option.startswith(name) for option in _GIT_DENIED_LONG):
+        raise CommandNotAllowedError(f"option not allowed: {name}")
+    if _GIT_CORE_SETTING.search(arg) is not None:
+        raise CommandNotAllowedError(f"git core settings are not allowed: {name}")
+    if sub == "commit" and name not in _GIT_COMMIT_LONG:
+        raise CommandNotAllowedError(f"git commit accepts only -m and -q: {name}")
+
+
+def _check_git_short(sub: str, arg: str) -> None:
+    if sub == "commit":
+        if arg in _GIT_COMMIT_SHORT or arg.startswith("-m"):
+            return
+        raise CommandNotAllowedError(f"git commit accepts only -m and -q: {arg}")
+    if arg == "-c" and sub in _GIT_BRANCH_C_SUBCOMMANDS:
+        return
+    letters = set(arg[1:])
+    if "c" in letters or letters & _GIT_DENIED_SHORT:
+        raise CommandNotAllowedError(f"option not allowed: {arg}")
 
 
 def _check_package_manager(exe: str, items: list[str]) -> tuple[str, ...]:

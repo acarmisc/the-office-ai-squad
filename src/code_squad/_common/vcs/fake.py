@@ -22,8 +22,9 @@ from code_squad._common.vcs.base import (
     ReviewEvent,
     StaleHeadError,
     StatusState,
+    same_login,
 )
-from code_squad._common.vcs.diff import parse_patch
+from code_squad._common.vcs.diff import added_range, parse_patch
 
 ALL_CAPABILITIES: frozenset[Capability] = frozenset(Capability)
 FAKE_TOKEN: str = "fake-token-for-tests"
@@ -57,6 +58,7 @@ class FakeVcsProvider:
         self._issues: dict[tuple[str, int], Issue] = {}
         self._resolved: set[str] = set()
         self._rate: RateLimit | None = RateLimit(5000, 4999, 0)
+        self._rejected: set[tuple[str, int]] = set()
         self._next_id = 1000
         self.writes: list[tuple[str, dict[str, Any]]] = []
 
@@ -107,6 +109,10 @@ class FakeVcsProvider:
 
     def set_rate_limit(self, rate: RateLimit | None) -> None:
         self._rate = rate
+
+    def reject_inline(self, path: str, line: int) -> None:
+        """Simulate a per-comment 4xx from the VCS for one position."""
+        self._rejected.add((path, line))
 
     # ----- protocol ----------------------------------------------------------
 
@@ -167,6 +173,9 @@ class FakeVcsProvider:
         self._assert_head(ref, head_sha)
         ids: list[str] = []
         for item in comments:
+            if not self._anchorable(ref, item):
+                ids.append("")
+                continue
             new_id = self._id()
             self._comments.setdefault(ref, []).append(
                 Comment(
@@ -180,9 +189,8 @@ class FakeVcsProvider:
                 )
             )
             ids.append(new_id)
-        self._write(
-            "post_inline_comments", ref=ref, count=len(comments), head_sha=head_sha
-        )
+        posted = sum(1 for item in ids if item)
+        self._write("post_inline_comments", ref=ref, count=posted, head_sha=head_sha)
         return ids
 
     def post_summary(self, ref: ChangeRequestRef, body: str) -> str:
@@ -196,7 +204,9 @@ class FakeVcsProvider:
     def upsert_comment(self, ref: ChangeRequestRef, marker: str, body: str) -> str:
         comments = self._comments.setdefault(ref, [])
         for index, existing in enumerate(comments):
-            if marker in existing.body:
+            if same_login(existing.author, self._identity.username) and (
+                marker in existing.body
+            ):
                 comments[index] = replace(existing, body=body)
                 self._write("upsert_comment", ref=ref, action="update", id=existing.id)
                 return existing.id
@@ -353,6 +363,16 @@ class FakeVcsProvider:
         current = self._cr(ref).head_sha
         if current != head_sha:
             raise StaleHeadError(f"change request head moved to {current[:12]}")
+
+    def _anchorable(self, ref: ChangeRequestRef, item: InlineComment) -> bool:
+        if (item.path, item.line) in self._rejected:
+            return False
+        diff = next((d for d in self._diffs.get(ref, ()) if d.path == item.path), None)
+        if diff is None or diff.truncated or diff.binary:
+            return False
+        if item.side == "LEFT":
+            return True
+        return added_range(diff, item.start_line or item.line, item.line)
 
     def _id(self) -> str:
         self._next_id += 1

@@ -1,0 +1,134 @@
+# yaml-language-server: $schema=../values.schema.json
+#
+# First operational test: one real project, dry run first, then posting.
+# Scope: michael, jim, angela, dwight and darryl (review only). pam is off. Webhooks are
+# off, so every review is started by hand with scripts/trial_review.sh. Ingress is off.
+# Procedure: docs/operations/first-operational-test.md.
+#
+# Replace every RFC 5737 documentation address (192.0.2.0/24, 198.51.100.0/24,
+# 203.0.113.0/24) and every placeholder name before installing.
+# posting.force_dry_run stays true until the dry-run acceptance criteria are met. Setting it
+# to false is the switch to posting; setting it back to true is the rollback.
+
+image:
+  # Your registry path for the code-squad image, pinned to the tag you tested.
+  repository: registry.example.com/platform/code-squad
+  tag: "0.1.0"
+
+llm:
+  # LiteLLM gateway URL. The gateway key is read from llm-api-key in secrets.existingSecret.
+  baseUrl: https://llm-gateway.example.internal/v1
+  apiKeySecret:
+    # Empty: use secrets.existingSecret.
+    name: ""
+    key: llm-api-key
+
+vcs:
+  # Pin the provider. For GitHub, use `github` and the GitHub base URL or leave it empty.
+  provider: gitlab
+  # Self-managed GitLab base URL. Empty for github.com.
+  baseUrl: https://gitlab.example.com
+
+secrets:
+  # One Secret holding llm-api-key, the VCS token (gitlab-token or the GitHub App key)
+  # and code-squad-api's api-token. See deploy/secrets-examples.
+  existingSecret: code-squad-secrets
+
+api:
+  # Bearer token for POST /invocations and GET /jobs/{id}. Create the Secret first; the
+  # agents refuse requests without it.
+  tokenSecret:
+    name: code-squad-api
+    key: api-token
+  # Stays false: the trial runs with the token.
+  allowUnauthenticated: false
+
+webhooks:
+  gitlab:
+    # Off for the trial. Turn on only after the posting acceptance criteria are met.
+    enabled: false
+  github:
+    # Off for the trial.
+    enabled: false
+  secretName: ""
+
+ingress:
+  # No public endpoint. Reach michael with `kubectl port-forward` for trial_review.sh.
+  enabled: false
+
+agents:
+  michael:
+    enabled: true
+    replicas: 1
+    model: haiku-5-5
+  jim:
+    enabled: true
+    replicas: 1
+    model: sonnet-5-5
+  angela:
+    enabled: true
+    replicas: 1
+    model: sonnet-5-5
+  dwight:
+    enabled: true
+    replicas: 1
+    model: sonnet-5-5
+  darryl:
+    enabled: true
+    replicas: 1
+    model: sonnet-5-5
+  pam:
+    # Off: no implementer and no sandbox pods in the trial.
+    enabled: false
+
+sandbox:
+  # Off with pam: no sandbox namespace, RBAC or egress is rendered.
+  enabled: false
+
+devops:
+  # darryl reviews manifests in the change request only. It has no cluster access.
+  allowedNamespaces: []
+  clusterWide: false
+
+networkPolicy:
+  enabled: true
+  # Internal LLM gateway address range (placeholder).
+  llmGatewayCIDRs: ["192.0.2.10/32"]
+  # GitLab host address (placeholder). For GitHub, the github.com or GHES range.
+  vcsCIDRs: ["198.51.100.10/32"]
+  # Vulnerability intelligence hosts used by dwight (placeholder). Resolve the real ranges,
+  # or set egressProxy.url and leave this empty.
+  advisoryCIDRs: ["198.51.100.20/32"]
+
+config:
+  org:
+    posting:
+      # Rollback switch. true: nothing is posted, on the next invocation, with no restart.
+      force_dry_run: true
+    routing:
+      # Specialists return findings to michael. Only michael publishes.
+      specialists_post: false
+    vcs:
+      # Required: the bot's login. Without it every event is ignored, and the bot cannot tell its
+      # own comments apart. GitLab project token: project_<id>_bot. GitHub App: <slug>[bot].
+      bot_username: project_000000_bot
+      # No formal approvals in the trial. The status is the only write besides comments.
+      approve_mode: none
+    llm:
+      # The two default aliases. Any other model is refused with 422.
+      allowed_models: ["haiku-5-5", "sonnet-5-5"]
+    limits:
+      # Hard ceiling on model tokens for one run, across all turns.
+      max_run_tokens: 200000
+  projects:
+    # One placeholder project. Replace match, base_url and the token secret name.
+    # GitHub variant: the entry below becomes `match: my-org/my-repo`, `provider: github`,
+    # with no base_url. The GitHub App credentials go in config.org.vcs.auth (app_id,
+    # installation_id, private_key_secret), as in values-examples/github-app.yaml.
+    projects:
+      - match: platform/example-app
+        key: platform/example-app
+        provider: gitlab
+        base_url: https://gitlab.example.com
+        auth:
+          token_secret: gitlab-token

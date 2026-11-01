@@ -12,12 +12,12 @@ from tests.config.support import org_from, run
 def test_every_key_has_a_value_and_a_layer(tmp_path: Path) -> None:
     effective = run(
         org=org_from("review:\n  max_findings: 11\n", tmp_path),
-        repo="review:\n  chunking: truncate\n",
+        repo="review:\n  min_confidence_to_publish: low\n",
     )
     rows = {row.key: row for row in explain(effective)}
     assert rows["review.max_findings"].value == 11
     assert rows["review.max_findings"].layer == "org"
-    assert rows["review.chunking"].layer == "repo"
+    assert rows["review.min_confidence_to_publish"].layer == "repo"
     assert rows["review.min_severity_inline"].layer == "default"
     assert all(row.layer for row in rows.values())
 
