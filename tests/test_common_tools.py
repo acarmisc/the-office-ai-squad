@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from importlib import resources
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from strands.types.tools import ToolContext
 
+from code_squad._common import common_tools
 from code_squad._common.common_tools import MAX_INVALID_FINISH, finish, read_knowledge
 from code_squad._common.context import InvocationContext, current, use_context
 from code_squad._common.posting import PostingGate
@@ -98,33 +98,108 @@ def test_finish_stops_the_run_after_repeated_invalid_calls() -> None:
     assert fake.cancelled == [{"after_current_tools": True}]
 
 
+def _packs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Path]:
+    packs = {
+        "code_squad.michael": tmp_path / "agent",
+        "code_squad._common": tmp_path / "shared",
+    }
+
+    def _fake_package(package: str) -> Path | None:
+        root = packs.get(package)
+        return None if root is None else root / "knowledge"
+
+    monkeypatch.setattr(common_tools, "_package_knowledge", _fake_package)
+    return packs
+
+
 def test_read_knowledge_rejects_traversal_and_absolute_topics() -> None:
     with use_context(_context()):
         assert read_knowledge(topic="../secrets") == "invalid topic name"
         assert read_knowledge(topic="/etc/passwd") == "invalid topic name"
         assert read_knowledge(topic="a/../b") == "invalid topic name"
+        assert read_knowledge(topic="a//b") == "invalid topic name"
         assert read_knowledge(topic="Upper") == "invalid topic name"
 
 
-def test_read_knowledge_reads_topics_and_lists_available(
+def test_read_knowledge_reads_nested_topics_and_index_files(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    knowledge = tmp_path / "knowledge"
-    (knowledge / "react").mkdir(parents=True)
-    (knowledge / "checklist.md").write_text("# Checklist\n", encoding="utf-8")
-    (knowledge / "README.md").write_text("readme", encoding="utf-8")
-    (knowledge / "react" / "hooks.md").write_text("# Hooks\n", encoding="utf-8")
-    monkeypatch.setattr(resources, "files", lambda _package: tmp_path)
+    packs = _packs(monkeypatch, tmp_path)
+    agent = packs["code_squad.michael"] / "knowledge"
+    (agent / "react").mkdir(parents=True)
+    (agent / "checklist.md").write_text("# Checklist\n", encoding="utf-8")
+    (agent / "README.md").write_text("readme", encoding="utf-8")
+    (agent / "react" / "index.md").write_text("# Index\n", encoding="utf-8")
+    (agent / "react" / "hooks.md").write_text("# Hooks\n", encoding="utf-8")
     with use_context(_context()):
         assert read_knowledge(topic="checklist") == "# Checklist\n"
         assert read_knowledge(topic="react/hooks") == "# Hooks\n"
+        assert read_knowledge(topic="react/index") == "# Index\n"
         missing = read_knowledge(topic="missing")
     assert "not found" in missing
-    assert "checklist" in missing
+    assert "checklist, react/hooks, react/index" in missing
     assert "README" not in missing
 
 
-def test_read_knowledge_lists_none_when_pack_is_empty() -> None:
-    with use_context(_context("michael")):
+def test_agent_pack_wins_and_shared_pack_is_the_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    packs = _packs(monkeypatch, tmp_path)
+    (packs["code_squad._common"] / "knowledge" / "react").mkdir(parents=True)
+    (packs["code_squad._common"] / "knowledge" / "react" / "hooks.md").write_text(
+        "shared hooks", encoding="utf-8"
+    )
+    (packs["code_squad.michael"] / "knowledge" / "react").mkdir(parents=True)
+    (packs["code_squad.michael"] / "knowledge" / "react" / "hooks.md").write_text(
+        "agent hooks", encoding="utf-8"
+    )
+    (packs["code_squad._common"] / "knowledge" / "shared-only.md").write_text(
+        "shared only", encoding="utf-8"
+    )
+    with use_context(_context()):
+        assert read_knowledge(topic="react/hooks") == "agent hooks"
+        assert read_knowledge(topic="shared-only") == "shared only"
+
+
+def test_extra_dirs_from_services_are_searched_last(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _packs(monkeypatch, tmp_path)
+    extra = tmp_path / "extra"
+    extra.mkdir()
+    (extra / "house-rules.md").write_text("house rules", encoding="utf-8")
+    ctx = _context()
+    ctx.services["knowledge_extra_dirs"] = [str(extra), "relative/dir", "/nope"]
+    with use_context(ctx):
+        assert read_knowledge(topic="house-rules") == "house rules"
+        assert "house-rules" in read_knowledge(topic="unknown")
+
+
+def test_symlink_escaping_its_pack_is_not_readable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    packs = _packs(monkeypatch, tmp_path)
+    secret = tmp_path / "outside.md"
+    secret.write_text("outside the pack", encoding="utf-8")
+    agent = packs["code_squad.michael"] / "knowledge"
+    agent.mkdir(parents=True)
+    (agent / "link.md").symlink_to(secret)
+    with use_context(_context()):
+        assert "outside the pack" not in read_knowledge(topic="link")
+
+
+def test_read_knowledge_lists_none_when_no_pack_has_topics(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _packs(monkeypatch, tmp_path)
+    with use_context(_context()):
         reply = read_knowledge(topic="does-not-exist")
     assert "available topics: none" in reply
+
+
+def test_bundled_shared_react_pack_is_readable_by_any_agent() -> None:
+    with use_context(_context("michael")):
+        hooks = read_knowledge(topic="react/hooks-and-effects")
+        assert hooks.startswith("---")
+        index = read_knowledge(topic="react/index")
+    assert "react/hooks-and-effects" in index

@@ -70,11 +70,12 @@ def run_task(
     *,
     services: dict[str, Any] | None = None,
     model_factory: ModelFactory | None = None,
+    post_override: bool | None = None,
 ) -> InvocationResult:
     ctx = InvocationContext(
         agent=spec.name,
         request=request,
-        gate=PostingGate.from_request(request),
+        gate=_gate(request, post_override),
         services=_services_with_skills(services, request, spec.name),
     )
     factory = model_factory or get_model_factory()
@@ -86,6 +87,12 @@ def run_task(
             return _result(
                 spec, ctx, RunStatus.FAILED, Verdict.INCOMPLETE, _FAILED_SUMMARY
             )
+
+
+def _gate(request: InvocationRequest, post_override: bool | None) -> PostingGate:
+    if post_override is False:
+        return PostingGate(post_allowed=False)
+    return PostingGate.from_request(request)
 
 
 def _run(
@@ -196,6 +203,7 @@ def _result(
     data: dict[str, Any] | None = None,
 ) -> InvocationResult:
     warnings = list(ctx.warnings)
+    warnings.extend(_string_items(ctx.services.get("config_warnings")))
     skillset = skillset_from_services(ctx.services)
     if skillset is not None:
         warnings.extend(skillset.warnings)
@@ -215,10 +223,20 @@ def _result(
             output_tokens=ctx.output_tokens,
             tool_calls=dict(ctx.tool_calls),
             skills_applied=applied_skills(ctx.services),
+            config_hash=_config_hash(ctx.services),
         ),
         warnings=warnings,
         data=dict(data or {}),
     )
+
+
+def _string_items(value: Any) -> list[str]:
+    return [str(item) for item in value] if isinstance(value, list) else []
+
+
+def _config_hash(services: dict[str, Any]) -> str | None:
+    value = services.get("config_hash")
+    return value if isinstance(value, str) else None
 
 
 def _dry_run_note(gate: PostingGate) -> str:

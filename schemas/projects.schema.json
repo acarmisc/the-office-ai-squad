@@ -1635,7 +1635,8 @@
         },
         "auth": {
           "$ref": "#/$defs/VcsAuth",
-          "description": "Credentials as secret names, matched against secrets.allowed_patterns."
+          "description": "Credentials as secret names, matched against secrets.allowed_patterns.",
+          "x-merge": "org_only"
         },
         "base_url": {
           "anyOf": [
@@ -1694,14 +1695,15 @@
         },
         "provider": {
           "default": "auto",
-          "description": "VCS provider. 'auto' infers it from base_url for github.com and gitlab.com.",
+          "description": "VCS provider. 'auto' infers it from base_url for github.com and gitlab.com. Org-only: set it in the org config or the project registry.",
           "enum": [
             "gitlab",
             "github",
             "auto"
           ],
           "title": "Provider",
-          "type": "string"
+          "type": "string",
+          "x-merge": "org_only"
         },
         "status_context_template": {
           "default": "ai-review/{agent}",

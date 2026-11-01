@@ -1,0 +1,155 @@
+[
+  {
+    "tool": "get_review_context",
+    "input": {}
+  },
+  {
+    "tool": "read_file",
+    "input": {
+      "path": "src/features/profile/ProfileCard.tsx",
+      "start": 1,
+      "end": 40
+    }
+  },
+  {
+    "tool": "load_skill",
+    "input": {
+      "name": "react-conventions"
+    }
+  },
+  {
+    "tool": "publish_review",
+    "input": {
+      "findings": [
+        {
+          "agent": "jim",
+          "rule_id": "REACT-SEC-001",
+          "category": "security",
+          "severity": "blocker",
+          "confidence": "high",
+          "file": "src/features/profile/ProfileCard.tsx",
+          "line_start": 26,
+          "line_end": 26,
+          "head_sha": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+          "title": "Profile bio rendered as raw HTML",
+          "rationale": "The bio is passed to dangerouslySetInnerHTML without sanitising. The bio is user-supplied text.",
+          "failure_scenario": "A bio containing a script tag runs in the session of every user who views the profile.",
+          "references": [
+            "CWE-79"
+          ]
+        },
+        {
+          "agent": "jim",
+          "rule_id": "REACT-HOOKS-001",
+          "category": "correctness",
+          "severity": "major",
+          "confidence": "medium",
+          "file": "src/features/profile/ProfileCard.tsx",
+          "line_start": 10,
+          "line_end": 10,
+          "head_sha": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+          "title": "Effect fetch has no cleanup, so a late response can overwrite newer data",
+          "rationale": "The request has no abort or ignore flag. When userId changes quickly, an older response can call setProfile after the newer one."
+        },
+        {
+          "agent": "jim",
+          "rule_id": "REACT-HOOKS-002",
+          "category": "correctness",
+          "severity": "major",
+          "confidence": "high",
+          "file": "src/features/profile/ProfileCard.tsx",
+          "line_start": 16,
+          "line_end": 19,
+          "head_sha": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+          "title": "Hook called after an early return",
+          "rationale": "useMemo runs only when profile is set. Calling it after the early return breaks the rules of hooks and throws when the order of hooks changes between renders."
+        },
+        {
+          "agent": "jim",
+          "rule_id": "REACT-SEC-002",
+          "category": "security",
+          "severity": "major",
+          "confidence": "high",
+          "file": "src/lib/analytics.ts",
+          "line_start": 2,
+          "line_end": 2,
+          "head_sha": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+          "title": "Analytics key shipped in the client bundle",
+          "rationale": "The key is a constant in client code, so every visitor can read and reuse it.",
+          "references": [
+            "OWASP A02:2021"
+          ]
+        }
+      ],
+      "summary": "Four issues: unsafe HTML, a fetch race, a hook after an early return and a client key."
+    }
+  },
+  {
+    "tool": "finish",
+    "input": {
+      "verdict": "request_changes",
+      "summary": "Four issues: unsafe HTML, a fetch race, a hook after an early return and a client key.",
+      "findings": [
+        {
+          "agent": "jim",
+          "rule_id": "REACT-SEC-001",
+          "category": "security",
+          "severity": "blocker",
+          "confidence": "high",
+          "file": "src/features/profile/ProfileCard.tsx",
+          "line_start": 26,
+          "line_end": 26,
+          "head_sha": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+          "title": "Profile bio rendered as raw HTML",
+          "rationale": "The bio is passed to dangerouslySetInnerHTML without sanitising. The bio is user-supplied text.",
+          "failure_scenario": "A bio containing a script tag runs in the session of every user who views the profile.",
+          "references": [
+            "CWE-79"
+          ]
+        },
+        {
+          "agent": "jim",
+          "rule_id": "REACT-HOOKS-001",
+          "category": "correctness",
+          "severity": "major",
+          "confidence": "medium",
+          "file": "src/features/profile/ProfileCard.tsx",
+          "line_start": 10,
+          "line_end": 10,
+          "head_sha": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+          "title": "Effect fetch has no cleanup, so a late response can overwrite newer data",
+          "rationale": "The request has no abort or ignore flag. When userId changes quickly, an older response can call setProfile after the newer one."
+        },
+        {
+          "agent": "jim",
+          "rule_id": "REACT-HOOKS-002",
+          "category": "correctness",
+          "severity": "major",
+          "confidence": "high",
+          "file": "src/features/profile/ProfileCard.tsx",
+          "line_start": 16,
+          "line_end": 19,
+          "head_sha": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+          "title": "Hook called after an early return",
+          "rationale": "useMemo runs only when profile is set. Calling it after the early return breaks the rules of hooks and throws when the order of hooks changes between renders."
+        },
+        {
+          "agent": "jim",
+          "rule_id": "REACT-SEC-002",
+          "category": "security",
+          "severity": "major",
+          "confidence": "high",
+          "file": "src/lib/analytics.ts",
+          "line_start": 2,
+          "line_end": 2,
+          "head_sha": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+          "title": "Analytics key shipped in the client bundle",
+          "rationale": "The key is a constant in client code, so every visitor can read and reuse it.",
+          "references": [
+            "OWASP A02:2021"
+          ]
+        }
+      ]
+    }
+  }
+]

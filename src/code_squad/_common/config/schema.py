@@ -120,8 +120,10 @@ class VcsAuth(_Base):
 
 class VcsConfig(_Base):
     provider: Literal["gitlab", "github", "auto"] = _field(
-        "VCS provider. 'auto' infers it from base_url for github.com and gitlab.com.",
+        "VCS provider. 'auto' infers it from base_url for github.com and gitlab.com. "
+        "Org-only: set it in the org config or the project registry.",
         default="auto",
+        merge="org_only",
     )
     base_url: str | None = _field(
         "API base URL for self-managed or enterprise hosts. Org-only.",
@@ -131,6 +133,7 @@ class VcsConfig(_Base):
     auth: VcsAuth = _field(
         "Credentials as secret names, matched against secrets.allowed_patterns.",
         default_factory=VcsAuth,
+        merge="org_only",
     )
     bot_username: str | None = _field(
         "Login of the bot identity, used for loop prevention.", default=None

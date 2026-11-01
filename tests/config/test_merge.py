@@ -312,12 +312,12 @@ def test_repo_can_disable_a_non_floor_rule_and_raise_a_floor_rule() -> None:
 
 
 def test_secret_reference_outside_allowed_patterns_is_rejected() -> None:
-    reasons = _reasons(_base(), {"vcs": {"auth": {"token_secret": "Prod.Token"}}})
+    reasons = _reasons(_base(), {"llm": {"api_key_secret": "Prod.Token"}})
     assert any("outside secrets.allowed_patterns" in r for r in reasons)
 
 
 def test_secret_reference_inside_allowed_patterns_is_accepted() -> None:
-    assert _reasons(_base(), {"vcs": {"auth": {"token_secret": "gitlab-token"}}}) == []
+    assert _reasons(_base(), {"llm": {"api_key_secret": "llm-key"}}) == []
 
 
 def test_secret_check_uses_the_org_patterns() -> None:

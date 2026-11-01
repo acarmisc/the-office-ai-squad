@@ -1,0 +1,18 @@
+id: "spring-clean-interface"
+description: "A one-method payment port interface with no defects. Any finding is a false positive."
+agent: "angela"
+fixture: "spring-app"
+project: "acme/orders"
+target: "20"
+title: "Add payment port"
+head_sha: "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2"
+base_sha: "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2"
+added_files:
+  - "src/main/java/com/example/orders/PaymentClient.java"
+expected: []
+must_not_flag:
+  - file: "src/main/java/com/example/orders/PaymentClient.java"
+    lines: [1, 6]
+    reason: "The interface is minimal and correct."
+injection: null
+replay: "spring-clean-interface.json"

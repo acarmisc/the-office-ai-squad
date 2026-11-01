@@ -1,0 +1,28 @@
+[
+  {
+    "tool": "get_review_context",
+    "input": {}
+  },
+  {
+    "tool": "read_file",
+    "input": {
+      "path": "src/main/java/com/example/orders/PaymentClient.java",
+      "start": 1,
+      "end": 40
+    }
+  },
+  {
+    "tool": "read_knowledge",
+    "input": {
+      "topic": "java/spring-core"
+    }
+  },
+  {
+    "tool": "finish",
+    "input": {
+      "verdict": "approve",
+      "summary": "No issues found in the payment port.",
+      "findings": []
+    }
+  }
+]

@@ -11,7 +11,7 @@ Current milestone: **M5–M8 — agents (jim, angela, dwight, darryl) and sandbo
 | M2 | VCS providers + findings pipeline | done |
 | M3 | Configuration system | done |
 | M4 | Skills system | done |
-| M5 | jim + angela | todo |
+| M5 | jim + angela | done |
 | M6 | dwight | todo |
 | M7 | darryl | todo |
 | M8 | Sandbox + pam | todo |

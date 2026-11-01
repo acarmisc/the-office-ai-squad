@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Sequence
 from importlib import resources
-from importlib.resources.abc import Traversable
+from pathlib import Path
 from typing import Any, Final
 
 from pydantic import ValidationError
@@ -13,8 +14,11 @@ from code_squad._common.context import current
 from code_squad._common.contract import FinishPayload
 
 MAX_INVALID_FINISH: Final = 2
+SHARED_KNOWLEDGE_PACKAGE: Final = "code_squad._common"
 _TOPIC: Final = re.compile(r"^[a-z0-9_][a-z0-9_/-]{0,127}$")
+_TOPIC_SEGMENT: Final = re.compile(r"^[a-z0-9_][a-z0-9_-]*$")
 _README: Final = "README.md"
+_EXTRA_DIRS_KEY: Final = "knowledge_extra_dirs"
 
 
 @tool(context=True)
@@ -63,26 +67,80 @@ def finish(
 
 @tool
 def read_knowledge(topic: str) -> str:
-    """Read a bundled guideline topic for this agent, e.g. 'react/hooks'."""
-    agent = current().agent
-    if not _TOPIC.match(topic):
+    """Read a bundled guideline topic, e.g. 'react/hooks-and-effects' or 'java/index'.
+
+    Topics come from the agent's own pack first, then the shared pack, then extra
+    directories from configuration. Use an index topic to see what a pack covers.
+
+    Args:
+        topic: Topic id: the knowledge file path without the .md extension.
+    """
+    ctx = current()
+    if not _valid_topic(topic):
         return "invalid topic name"
-    knowledge = resources.files(f"code_squad.{agent}").joinpath("knowledge")
-    resource = knowledge.joinpath(f"{topic}.md")
-    if resource.is_file():
-        return resource.read_text(encoding="utf-8")
-    available = ", ".join(_topics(knowledge)) or "none"
+    roots = _knowledge_roots(ctx.agent, _extra_dirs(ctx.services))
+    for root in roots:
+        text = _read_topic(root, topic)
+        if text is not None:
+            return text
+    available = ", ".join(_all_topics(roots)) or "none"
     return f"topic '{topic}' not found; available topics: {available}"
 
 
-def _topics(knowledge: Traversable) -> list[str]:
-    if not knowledge.is_dir():
+def _valid_topic(topic: str) -> bool:
+    if not _TOPIC.match(topic):
+        return False
+    return all(_TOPIC_SEGMENT.match(part) for part in topic.split("/"))
+
+
+def _knowledge_roots(agent: str, extra: Sequence[Path]) -> list[Path]:
+    roots = [_package_knowledge(f"code_squad.{agent}")]
+    roots.append(_package_knowledge(SHARED_KNOWLEDGE_PACKAGE))
+    roots.extend(extra)
+    return [root for root in roots if root is not None]
+
+
+def _package_knowledge(package: str) -> Path | None:
+    try:
+        base = resources.files(package).joinpath("knowledge")
+    except (ModuleNotFoundError, TypeError):
+        return None
+    return Path(str(base))
+
+
+def _extra_dirs(services: dict[str, Any]) -> list[Path]:
+    value = services.get(_EXTRA_DIRS_KEY)
+    if not isinstance(value, list):
         return []
-    return sorted(
-        entry.name[: -len(".md")]
-        for entry in knowledge.iterdir()
-        if entry.name.endswith(".md") and entry.name != _README
-    )
+    dirs: list[Path] = []
+    for item in value:
+        if isinstance(item, str) and Path(item).is_absolute():
+            dirs.append(Path(item))
+    return dirs
+
+
+def _read_topic(root: Path, topic: str) -> str | None:
+    if not root.is_dir():
+        return None
+    base = root.resolve()
+    target = (base / f"{topic}.md").resolve()
+    if not target.is_relative_to(base) or not target.is_file():
+        return None
+    return target.read_text(encoding="utf-8")
+
+
+def _all_topics(roots: Iterable[Path]) -> list[str]:
+    found: set[str] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*.md"):
+            if path.name == _README or not path.is_file():
+                continue
+            topic = path.relative_to(root).with_suffix("").as_posix()
+            if _valid_topic(topic):
+                found.add(topic)
+    return sorted(found)
 
 
 def _describe(exc: ValidationError) -> str:

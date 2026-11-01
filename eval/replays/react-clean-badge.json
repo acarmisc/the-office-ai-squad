@@ -1,0 +1,28 @@
+[
+  {
+    "tool": "get_review_context",
+    "input": {}
+  },
+  {
+    "tool": "read_file",
+    "input": {
+      "path": "src/components/Badge.tsx",
+      "start": 1,
+      "end": 40
+    }
+  },
+  {
+    "tool": "load_skill",
+    "input": {
+      "name": "react-conventions"
+    }
+  },
+  {
+    "tool": "finish",
+    "input": {
+      "verdict": "approve",
+      "summary": "No issues found in the badge component.",
+      "findings": []
+    }
+  }
+]

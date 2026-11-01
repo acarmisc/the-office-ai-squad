@@ -1,1 +1,1 @@
-Knowledge packs for this agent are added in later milestones. Files here are trusted, versioned guidelines loaded by read_knowledge.
+Java pack for angela: `java/` (topics such as `java/spring-core`, index at `java/index`). Files here are trusted, versioned guidelines loaded by `read_knowledge`. The shared React pack in `code_squad/_common/knowledge/` is also readable, after this pack.

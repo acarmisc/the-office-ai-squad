@@ -1,0 +1,18 @@
+id: "react-clean-badge"
+description: "A small typed badge component with no defects. Any finding is a false positive."
+agent: "jim"
+fixture: "react-app"
+project: "acme/storefront"
+target: "8"
+title: "Add badge component"
+head_sha: "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1"
+base_sha: "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1"
+added_files:
+  - "src/components/Badge.tsx"
+expected: []
+must_not_flag:
+  - file: "src/components/Badge.tsx"
+    lines: [1, 5]
+    reason: "The component is typed and has no defect."
+injection: null
+replay: "react-clean-badge.json"

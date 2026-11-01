@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal
 
+from code_squad._common.config.globs import glob_match
 from code_squad._common.contract import (
     Confidence,
     Finding,
@@ -146,7 +146,7 @@ def _anchor_one(
 ) -> tuple[Bucket, str]:
     if finding.head_sha != head:
         return "dropped", "stale: finding was produced for another head"
-    if any(fnmatch.fnmatch(finding.file, glob) for glob in ignore_globs):
+    if any(glob_match(glob, finding.file) for glob in ignore_globs):
         return "dropped", "path matches review ignore_globs"
     file_diff = files.get(finding.file)
     if file_diff is None:

@@ -228,7 +228,7 @@ def resolve(
     for entry in matched:
         builder.apply(_entry_overlay(entry, registry), f"registry:{entry.match}")
         _ensure_valid(builder.merged, f"registry entry {entry.match!r}")
-    if not matched and bootstrap_env is not None:
+    if not matched and bootstrap_env is not None and project:
         fallback = single_project_entry(bootstrap_env, project)
         if fallback is not None:
             builder.apply(_entry_overlay(fallback, registry), "bootstrap")

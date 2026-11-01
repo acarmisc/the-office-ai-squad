@@ -104,8 +104,10 @@ def test_extends_is_only_allowed_in_repo_files() -> None:
 
 
 def test_merge_policy_helper_reports_declared_policies() -> None:
-    assert merge_policy(VcsConfig, "provider") == "free"
+    assert merge_policy(VcsConfig, "bot_username") == "free"
     assert merge_policy(VcsConfig, "approve_mode") == "tighten_only"
+    assert merge_policy(VcsConfig, "provider") == "org_only"
+    assert merge_policy(VcsConfig, "auth") == "org_only"
     assert merge_policy(VcsConfig, "base_url") == "org_only"
     assert merge_policy(SquadFields, "limits") == "org_only"
     assert merge_policy(Budgets, "tokens") == "tighten_only"

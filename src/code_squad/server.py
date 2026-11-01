@@ -32,6 +32,7 @@ from code_squad._common.observability import (
 )
 from code_squad._common.registry import get_spec
 from code_squad._common.runtime import run_task
+from code_squad._common.services import ServiceBuilder, disabled_result, plan_run
 from code_squad._common.session import (
     JobStore,
     MemorySessionStore,
@@ -44,7 +45,7 @@ from code_squad._common.validation import ValidationFailure, validate_invocation
 logger = logging.getLogger(__name__)
 
 _DEFAULT_AGENT: Final = "michael"
-ServicesFactory = Callable[[InvocationRequest], dict[str, Any]]
+ServicesFactory = Callable[[InvocationRequest, str], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ def create_app(
     configure_logging(os.environ.get("LOG_LEVEL", "INFO"))
     configure_tracing(f"code-squad-{name}")
     loaded = _load(name)
+    build_services: ServicesFactory = services_factory or ServiceBuilder().build
     jobs = JobStore(session_store or _default_store())
     app = FastAPI(title="Code Squad", version=__version__)
 
@@ -99,18 +101,30 @@ def create_app(
             req = validate_invocation(raw, loaded.spec)
         except ValidationFailure as exc:
             return JSONResponse(status_code=422, content={"detail": exc.errors})
-        services = services_factory(req) if services_factory else {}
+        services = await run_in_threadpool(build_services, req, loaded.spec.name)
+        plan = plan_run(loaded.spec, services)
+        if plan.disabled:
+            refused = disabled_result(loaded.spec, services)
+            _finish(refused, uuid.uuid4().hex, 0.0)
+            return JSONResponse(content=refused.model_dump(mode="json"))
         factory = model_factory or get_model_factory()
         if _wants_async(prefer):
             job_id = uuid.uuid4().hex
             jobs.create(job_id)
             background.add_task(
-                _run_job, jobs, job_id, loaded.spec, req, services, factory
+                _run_job,
+                jobs,
+                job_id,
+                plan.spec,
+                req,
+                services,
+                factory,
+                plan.post_override,
             )
             return JSONResponse(
                 status_code=202, content={"job_id": job_id}, background=background
             )
-        result = await _execute(loaded.spec, req, services, factory)
+        result = await _execute(plan.spec, req, services, factory, plan.post_override)
         return JSONResponse(content=result.model_dump(mode="json"))
 
     @app.get("/jobs/{job_id}")
@@ -156,12 +170,18 @@ async def _execute(
     req: InvocationRequest,
     services: dict[str, Any],
     factory: ModelFactory,
+    post_override: bool | None,
 ) -> InvocationResult:
     invocation_id = uuid.uuid4().hex
     started = time.perf_counter()
     with span("invocation", agent=spec.name, invocation_id=invocation_id):
         result = await run_in_threadpool(
-            run_task, spec, req, services=services, model_factory=factory
+            run_task,
+            spec,
+            req,
+            services=services,
+            model_factory=factory,
+            post_override=post_override,
         )
     _finish(result, invocation_id, time.perf_counter() - started)
     return result
@@ -174,11 +194,18 @@ def _run_job(
     req: InvocationRequest,
     services: dict[str, Any],
     factory: ModelFactory,
+    post_override: bool | None,
 ) -> None:
     jobs.update(job_id, "running")
     started = time.perf_counter()
     try:
-        result = run_task(spec, req, services=services, model_factory=factory)
+        result = run_task(
+            spec,
+            req,
+            services=services,
+            model_factory=factory,
+            post_override=post_override,
+        )
     except Exception:
         logger.error("job failed", extra={"agent": spec.name, "invocation_id": job_id})
         jobs.update(job_id, "failed")
