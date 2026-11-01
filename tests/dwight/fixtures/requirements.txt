@@ -1,0 +1,11 @@
+# core runtime
+requests==2.31.0 \
+    --hash=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+    --hash=sha256:2222222222222222222222222222222222222222222222222222222222222222
+urllib3>=2.0,<3 ; python_version >= "3.8"
+Django~=4.2.0
+PyYAML==6.0.1 ; sys_platform != "win32"  # pinned for the config loader
+-r base.txt
+flask[async]==3.0.0
+Jinja2
+-e git+https://example.com/acme/local-lib.git#egg=local-lib
