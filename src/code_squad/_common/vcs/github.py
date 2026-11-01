@@ -28,6 +28,10 @@ from code_squad._common.vcs.base import (
     ReviewEvent,
     StaleHeadError,
     StatusState,
+    VcsError,
+    bounded_text,
+    is_comment_rejection,
+    same_login,
 )
 from code_squad._common.vcs.diff import parse_patch
 from code_squad._common.vcs.http import HttpClient, as_dict, as_list, tail_text
@@ -174,6 +178,7 @@ class GitHubProvider:
         self._http = http or HttpClient(provider="github")
         extra = {Capability.CHECK_RUNS} if auth.kind == "app" else set()
         self.capabilities = _BASE_CAPABILITIES | frozenset(extra)
+        self._login: str | None = None
 
     @property
     def auth(self) -> GitHubAuth:
@@ -218,7 +223,7 @@ class GitHubProvider:
             headers=self._headers(project, _RAW),
             params={"ref": ref},
         )
-        return response.text
+        return bounded_text(response.content)
 
     def list_tree(self, project: str, path: str, ref: str) -> list[str]:
         items = self._list(project, f"/contents/{quote(path, safe='/')}", {"ref": ref})
@@ -252,23 +257,43 @@ class GitHubProvider:
         if not comments:
             return []
         self._assert_head(ref, head_sha)
-        body = {
-            "commit_id": head_sha,
-            "event": "COMMENT",
-            "body": "",
-            "comments": [_review_entry(comment) for comment in comments],
-        }
-        data = as_dict(self._post(ref.project, _pulls(ref, "/reviews"), body))
-        return [str(data["id"])]
+        try:
+            data = as_dict(
+                self._post(
+                    ref.project, _pulls(ref, "/reviews"), _review(head_sha, comments)
+                )
+            )
+        except VcsError as exc:
+            if not is_comment_rejection(exc):
+                raise
+            return [self._post_alone(ref, head_sha, comment) for comment in comments]
+        return [str(data["id"])] * len(comments)
+
+    def _post_alone(
+        self, ref: ChangeRequestRef, head_sha: str, comment: InlineComment
+    ) -> str:
+        try:
+            data = as_dict(
+                self._post(
+                    ref.project, _pulls(ref, "/reviews"), _review(head_sha, [comment])
+                )
+            )
+        except VcsError as exc:
+            if not is_comment_rejection(exc):
+                raise
+            return ""
+        return str(data["id"])
 
     def post_summary(self, ref: ChangeRequestRef, body: str) -> str:
         url = f"/issues/{ref.number}/comments"
         return str(as_dict(self._post(ref.project, url, {"body": body}))["id"])
 
     def upsert_comment(self, ref: ChangeRequestRef, marker: str, body: str) -> str:
+        bot = self._bot_login()
         for raw in self._list(ref.project, f"/issues/{ref.number}/comments"):
             comment = as_dict(raw)
-            if marker in str(comment.get("body") or ""):
+            author = str(as_dict(comment.get("user") or {}).get("login") or "")
+            if same_login(author, bot) and marker in str(comment.get("body") or ""):
                 url = (
                     f"{self._base}/repos/{ref.project}/issues/comments/{comment['id']}"
                 )
@@ -433,6 +458,11 @@ class GitHubProvider:
 
     def git_credentials(self, project: str) -> tuple[str, str]:
         return ("x-access-token", self._auth.token_for(project))
+
+    def _bot_login(self) -> str:
+        if self._login is None:
+            self._login = self.whoami().username
+        return self._login
 
     def _ident(self) -> dict[str, str]:
         return {
@@ -625,13 +655,26 @@ def _review_comment(data: dict[str, Any]) -> Comment:
     )
 
 
-def _review_entry(comment: InlineComment) -> dict[str, Any]:
+def _review(head_sha: str, comments: Sequence[InlineComment]) -> dict[str, Any]:
     return {
+        "commit_id": head_sha,
+        "event": "COMMENT",
+        "body": "",
+        "comments": [_review_entry(comment) for comment in comments],
+    }
+
+
+def _review_entry(comment: InlineComment) -> dict[str, Any]:
+    entry: dict[str, Any] = {
         "path": comment.path,
         "line": comment.line,
         "side": comment.side,
         "body": comment.body,
     }
+    if comment.start_line is not None and comment.start_line != comment.line:
+        entry["start_line"] = comment.start_line
+        entry["start_side"] = comment.side
+    return entry
 
 
 def _normalise(status: str) -> str:

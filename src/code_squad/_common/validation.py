@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 from pydantic import ValidationError
 
-from code_squad._common.contract import InvocationRequest
+from code_squad._common.contract import InvocationRequest, ProjectConfigOverride
 from code_squad._common.spec import AgentSpec
 
 AGENT_INPUT_KEYS: Final = frozenset({"symptom", "task", "question", "change_request"})
@@ -27,9 +27,39 @@ def validate_invocation(raw: Mapping[str, Any], spec: AgentSpec) -> InvocationRe
         errors.extend(_pydantic_errors(exc))
         raise ValidationFailure(errors) from None
     errors.extend(_policy_errors(request, spec))
+    errors.extend(_project_config_errors(request.project_config))
     if errors:
         raise ValidationFailure(errors)
     return request
+
+
+def model_allowlist_errors(
+    request: InvocationRequest, allowed: Sequence[str]
+) -> list[str]:
+    """Checked by the server against the effective config; empty means any model."""
+    if not allowed or request.model is None or request.model in allowed:
+        return []
+    return [f"model '{request.model}' is not in the organisation's allow-list"]
+
+
+def _project_config_errors(pc: ProjectConfigOverride | None) -> list[str]:
+    if pc is None:
+        return []
+    errors: list[str] = []
+    for name in ("vcs_provider", "vcs_base_url", "vcs_token_secret"):
+        if getattr(pc, name) is not None:
+            errors.append(_org_only(name, "is organisation-only"))
+    if pc.llm_api_key_secret is not None:
+        errors.append(_org_only("llm_api_key_secret", "has no runtime effect"))
+    if pc.skills_ref == "head":
+        errors.append(_org_only("skills_ref", "'head' is organisation-only"))
+    if pc.config_ref == "head":
+        errors.append(_org_only("config_ref", "'head' is organisation-only"))
+    return errors
+
+
+def _org_only(field: str, reason: str) -> str:
+    return f"project_config.{field} {reason} and cannot be set per request"
 
 
 def _foreign_key_errors(raw: Mapping[str, Any], spec: AgentSpec) -> list[str]:

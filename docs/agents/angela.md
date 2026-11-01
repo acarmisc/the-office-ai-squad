@@ -112,7 +112,7 @@ relying on the prompt's scope.
 | --- | --- | --- |
 | `agents.angela.enabled` | `true` | When false, `angela` returns `incomplete` without a model call. |
 | `agents.angela.model` | `sonnet-5-5` (built-in) | Model alias. |
-| `agents.angela.fallback_model` | `null` | Used once after a truncated answer. |
+| `agents.angela.fallback_model` | `null` | Used once after a truncated answer, or after a gateway 429 or 5xx. |
 | `agents.angela.max_tokens`, `max_iterations`, `temperature` | built-in | Capped by `limits.*`. |
 | `agents.angela.knowledge_extra_dirs` | `[]` (org-only) | Extra absolute directories searched for topics after the built-in packs. |
 | `agents.angela.prompt_extra` | `null` | Untrusted guidance, length-capped. |

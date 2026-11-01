@@ -17,7 +17,7 @@ uv sync
 PORT=4000 uv run python -m deploy.fake_llm
 # Terminal 2: michael on port 8080
 LLM_BASE_URL=http://localhost:4000/v1 LLM_API_KEY=fake-key-for-local-demo \
-  just run-local michael
+  SQUAD_ALLOW_UNAUTHENTICATED=1 just run-local michael
 
 # Terminal 3: a dry-run invocation
 just invoke michael "smoke test"
@@ -25,6 +25,9 @@ just invoke michael "smoke test"
 
 `just run-local <agent>` starts uvicorn with `AGENT_NAME` set. `just invoke <agent> "<prompt>" [url]` sends a dry-run request
 (`post: false`) to `/invocations`. Use `curl http://localhost:8080/ready` to confirm the agent loaded.
+
+Without a token, `/invocations` refuses every request, so local runs set `SQUAD_ALLOW_UNAUTHENTICATED=1`. To test the token
+path instead, set `SQUAD_API_TOKEN` in both the server and the shell: `just invoke` then sends it as a bearer header.
 
 Without `LLM_BASE_URL`, the agent calls `http://localhost:4000/v1`. Without `LLM_API_KEY` or `LLM_API_KEY_FILE`, a model call fails with
 a clear configuration error, and the run is `failed`.

@@ -24,7 +24,8 @@ There is no approval step between planning and the change request. This is delib
 - `POST /invocations` with `mode: "implementer"` and a `project`, and a task reference in `target` or
   the prompt. Typically from a tracker integration.
 - A webhook issue assignment to the bot starts an implementer run through `michael`, when the issue
-  does not carry a skip label. A `/squad implement` comment on an issue does the same.
+  does not carry a skip label and the user who assigned it is in `trigger.allowed_assigners`. An empty list means nobody.
+  A `/squad implement` comment on an issue does the same, subject to `trigger.allowed_commenters`.
 - Advisor mode: any call without a mode, or with `mode: "advisor"`.
 
 ## Tools and policy class
@@ -118,17 +119,19 @@ Everything is under `implementer` unless noted.
 | `implementer.check_commands` | `null` | Commands `run_checks` runs. Null detects them from the repository. |
 | `implementer.git_identity` | `pam (code-squad)` | Commit author. |
 | `implementer.protected_paths` | CI files, `.github/**`, lockfiles | Commits that touch them are refused unless `"allow"`. Lower layers may add. |
+| `implementer.allowed_protected_paths` | `[]` (organisation only) | Globs pam may change although `protected_paths` matches them. A repository cannot allow a protected path. |
 | `implementer.extra_executables` | `[]` (organisation only) | Extra executables on the sandbox allow-list. |
 | `implementer.sandbox.timeout_seconds` | `1800` | Wall-clock limit of one run. Capped by `limits.max_wall_clock_seconds`. |
 | `implementer.sandbox.image`, `cpu`, `memory` | see reference | Not read at run time. The chart sets `SANDBOX_IMAGE` and `SANDBOX_RESOURCES_JSON`. |
 | `agents.pam.enabled`, `model`, `max_tokens`, `max_iterations` | built-in | As for other agents. |
 | `SANDBOX_NAMESPACE` (environment) | unset | When unset, pam uses the local process sandbox. See the warning below. |
 
-> **Warning.** The sandbox backend is chosen only by `SANDBOX_NAMESPACE`. When it is unset, pam runs
-> repository commands in its own container through the local process backend, which provides no
-> container isolation. The chart sets it when `sandbox.enabled` is true. `values-examples/minimal-kind.yaml`
-> turns the sandbox off, so the kind demo runs that way. Do not deploy `pam` with
-> `sandbox.enabled: false` outside a disposable test cluster. See [Hardening](../security/hardening.md).
+> **Refusal.** The sandbox backend is chosen only by `SANDBOX_NAMESPACE`. When it is unset, pam refuses to start
+> unless `ALLOW_LOCAL_SANDBOX=1` is set, so a cluster deployment cannot silently run repository commands in the pam
+> container. With `ALLOW_LOCAL_SANDBOX=1`, the local process backend runs them without container isolation. The chart
+> sets `SANDBOX_NAMESPACE` when `sandbox.enabled` is true. The kind demo turns the sandbox off and sets
+> `ALLOW_LOCAL_SANDBOX` through its own values. Do not run `pam` this way outside a disposable test cluster. See
+> [Hardening](../security/hardening.md#pam-controls).
 
 ## Limits
 

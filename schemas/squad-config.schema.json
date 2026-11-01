@@ -16,6 +16,36 @@
           "title": "Id",
           "type": "string"
         },
+        "package": {
+          "anyOf": [
+            {
+              "maxLength": 214,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Package name the acceptance is limited to. The finding must name it.",
+          "title": "Package"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Glob of changed files the acceptance is limited to.",
+          "title": "Path"
+        },
         "reason": {
           "description": "Why the risk is accepted. Required.",
           "minLength": 1,
@@ -37,16 +67,6 @@
         "budgets": {
           "$ref": "#/$defs/Budgets",
           "description": "Per-invocation budgets. Each is capped by the matching limits.* value."
-        },
-        "disabled_rules": {
-          "description": "Rule ids turned off for this agent. Floor rules cannot be disabled.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Disabled Rules",
-          "type": "array",
-          "x-floor": true,
-          "x-mergeable-set": true
         },
         "enabled": {
           "default": true,
@@ -77,14 +97,6 @@
           "type": "array",
           "x-merge": "org_only"
         },
-        "language": {
-          "default": "en",
-          "description": "Language of published comments.",
-          "maxLength": 16,
-          "minLength": 2,
-          "title": "Language",
-          "type": "string"
-        },
         "max_iterations": {
           "anyOf": [
             {
@@ -99,7 +111,8 @@
           "description": "Model turns per invocation. Cannot exceed limits.max_iterations.",
           "title": "Max Iterations",
           "x-ceiling": "limits.max_iterations",
-          "x-merge": "tighten_only"
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
         },
         "max_tokens": {
           "anyOf": [
@@ -115,7 +128,8 @@
           "description": "Model output token cap per call. Cannot exceed limits.max_tokens.",
           "title": "Max Tokens",
           "x-ceiling": "limits.max_tokens",
-          "x-merge": "tighten_only"
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
         },
         "model": {
           "anyOf": [
@@ -146,15 +160,6 @@
           "title": "Prompt Extra",
           "x-ceiling": "limits.max_prompt_extra_chars",
           "x-merge": "tighten_only"
-        },
-        "severity_overrides": {
-          "additionalProperties": {
-            "$ref": "#/$defs/Severity"
-          },
-          "description": "Severity per rule_id. Floor rules must stay at blocker.",
-          "title": "Severity Overrides",
-          "type": "object",
-          "x-floor": true
         },
         "temperature": {
           "anyOf": [
@@ -197,46 +202,24 @@
     "Budgets": {
       "additionalProperties": false,
       "properties": {
-        "cost_hint_usd": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": 5.0,
-          "description": "Advisory cost ceiling reported in stats.cost_hint.",
-          "title": "Cost Hint Usd"
-        },
-        "tokens": {
-          "default": 100000,
-          "description": "Maximum model tokens per invocation for this agent.",
-          "minimum": 1,
-          "title": "Tokens",
-          "type": "integer",
-          "x-ceiling": "limits.max_tokens",
-          "x-merge": "tighten_only"
-        },
         "tool_calls": {
           "default": 100,
-          "description": "Maximum tool calls per invocation.",
+          "description": "Maximum tool calls per invocation. Lower layers may only lower it.",
           "minimum": 1,
           "title": "Tool Calls",
           "type": "integer",
-          "x-ceiling": "limits.max_tool_calls",
-          "x-merge": "tighten_only"
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
         },
         "wall_clock_seconds": {
           "default": 900,
-          "description": "Maximum wall-clock seconds per invocation.",
+          "description": "Maximum wall-clock seconds per invocation. Lower layers may only lower it.",
           "minimum": 1,
           "title": "Wall Clock Seconds",
           "type": "integer",
           "x-ceiling": "limits.max_wall_clock_seconds",
-          "x-merge": "tighten_only"
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
         }
       },
       "title": "Budgets",
@@ -340,6 +323,15 @@
     "ImplementerConfig": {
       "additionalProperties": false,
       "properties": {
+        "allowed_protected_paths": {
+          "description": "Globs pam may change although protected_paths matches them. Org-only; a repository cannot allow a protected path for itself.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Protected Paths",
+          "type": "array",
+          "x-merge": "org_only"
+        },
         "assignees": {
           "description": "Assignees set on every change request.",
           "items": {
@@ -465,6 +457,22 @@
           "type": "integer",
           "x-merge": "org_only"
         },
+        "max_request_bytes": {
+          "default": 1000000,
+          "description": "Largest request body the API accepts, in bytes.",
+          "minimum": 1,
+          "title": "Max Request Bytes",
+          "type": "integer",
+          "x-merge": "org_only"
+        },
+        "max_run_tokens": {
+          "default": 400000,
+          "description": "Hard ceiling on model tokens for one run, across all turns.",
+          "minimum": 1,
+          "title": "Max Run Tokens",
+          "type": "integer",
+          "x-merge": "org_only"
+        },
         "max_skill_bytes": {
           "default": 65536,
           "description": "Platform ceiling for bytes per skill.",
@@ -486,14 +494,6 @@
           "description": "Platform ceiling for tokens per invocation.",
           "minimum": 1,
           "title": "Max Tokens",
-          "type": "integer",
-          "x-merge": "org_only"
-        },
-        "max_tool_calls": {
-          "default": 200,
-          "description": "Platform ceiling for tool calls.",
-          "minimum": 1,
-          "title": "Max Tool Calls",
           "type": "integer",
           "x-merge": "org_only"
         },
@@ -520,28 +520,14 @@
     "LlmConfig": {
       "additionalProperties": false,
       "properties": {
-        "aliases": {
-          "additionalProperties": {
+        "allowed_models": {
+          "description": "Model aliases a run may use, including per-agent and fallback models. Empty means any. Org-only.",
+          "items": {
             "type": "string"
           },
-          "description": "Reserved: model alias to gateway model name. Not applied in this version; model aliases are passed to the LiteLLM gateway unchanged.",
-          "title": "Aliases",
-          "type": "object"
-        },
-        "api_key_secret": {
-          "anyOf": [
-            {
-              "pattern": "^[a-z0-9][a-z0-9._-]{0,252}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": "llm-api-key",
-          "description": "Secret name holding the gateway key.",
-          "title": "Api Key Secret",
-          "x-secret-ref": true
+          "title": "Allowed Models",
+          "type": "array",
+          "x-merge": "org_only"
         },
         "base_url": {
           "anyOf": [
@@ -556,110 +542,9 @@
           "description": "LiteLLM gateway URL. Org-only (egress).",
           "title": "Base Url",
           "x-merge": "org_only"
-        },
-        "budget_usd_per_day": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Daily spend cap per project. Lower layers may only lower it.",
-          "title": "Budget Usd Per Day",
-          "x-merge": "tighten_only",
-          "x-tighten": "le"
-        },
-        "tag_template": {
-          "description": "LiteLLM tags sent with each call. {project} and {agent} are filled in.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Tag Template",
-          "type": "array"
         }
       },
       "title": "LlmConfig",
-      "type": "object"
-    },
-    "LocalScanners": {
-      "additionalProperties": false,
-      "properties": {
-        "gitleaks": {
-          "default": false,
-          "description": "Run gitleaks in the sandbox.",
-          "title": "Gitleaks",
-          "type": "boolean"
-        },
-        "semgrep": {
-          "default": false,
-          "description": "Run semgrep in the sandbox.",
-          "title": "Semgrep",
-          "type": "boolean"
-        },
-        "trivy": {
-          "default": false,
-          "description": "Run trivy fs in the sandbox.",
-          "title": "Trivy",
-          "type": "boolean"
-        }
-      },
-      "title": "LocalScanners",
-      "type": "object"
-    },
-    "ObservabilityConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "content_capture": {
-          "default": "METADATA",
-          "description": "Whether prompts and diffs may appear in traces. Org-only.",
-          "enum": [
-            "FULL",
-            "METADATA"
-          ],
-          "title": "Content Capture",
-          "type": "string",
-          "x-merge": "org_only"
-        },
-        "log_level": {
-          "default": "INFO",
-          "description": "Log level.",
-          "enum": [
-            "DEBUG",
-            "INFO",
-            "WARNING",
-            "ERROR"
-          ],
-          "title": "Log Level",
-          "type": "string"
-        },
-        "otlp_endpoint": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "OTLP collector endpoint. Org-only (egress).",
-          "title": "Otlp Endpoint",
-          "x-merge": "org_only"
-        },
-        "sampling_ratio": {
-          "default": 1.0,
-          "description": "Trace sampling ratio between 0 and 1.",
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Sampling Ratio",
-          "type": "number"
-        }
-      },
-      "title": "ObservabilityConfig",
       "type": "object"
     },
     "OpsConfig": {
@@ -687,13 +572,6 @@
           "description": "Argo CD endpoint. Org-only (egress).",
           "title": "Argocd Url",
           "x-merge": "org_only"
-        },
-        "incident_window_minutes": {
-          "default": 120,
-          "description": "Window around an alert used to correlate changes.",
-          "minimum": 1,
-          "title": "Incident Window Minutes",
-          "type": "integer"
         },
         "loki_url": {
           "anyOf": [
@@ -782,24 +660,6 @@
     "ReviewConfig": {
       "additionalProperties": false,
       "properties": {
-        "baseline_file": {
-          "default": ".squad/baseline.yml",
-          "description": "Repository file with accepted findings and mandatory expiry dates.",
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Baseline File",
-          "type": "string"
-        },
-        "chunking": {
-          "default": "split_by_file",
-          "description": "How oversized diffs are handled.",
-          "enum": [
-            "split_by_file",
-            "truncate"
-          ],
-          "title": "Chunking",
-          "type": "string"
-        },
         "ignore_globs": {
           "description": "Files excluded from review: generated, vendored, lockfiles, snapshots. Lower layers may only add globs.",
           "items": {
@@ -846,26 +706,6 @@
           ],
           "title": "Min Severity Inline",
           "type": "string"
-        },
-        "summary_template": {
-          "anyOf": [
-            {
-              "maxLength": 8000,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Summary note template; null uses the built-in template.",
-          "title": "Summary Template"
-        },
-        "suppressions_enabled": {
-          "default": true,
-          "description": "Honour in-code suppression comments (squad-ignore <rule_id> <reason>).",
-          "title": "Suppressions Enabled",
-          "type": "boolean"
         },
         "verdict": {
           "$ref": "#/$defs/VerdictPolicy",
@@ -985,37 +825,15 @@
     "SandboxConfig": {
       "additionalProperties": false,
       "properties": {
-        "cpu": {
-          "default": "1",
-          "description": "CPU limit for the sandbox.",
-          "maxLength": 16,
-          "title": "Cpu",
-          "type": "string"
-        },
-        "image": {
-          "default": "code-squad-sandbox-node:latest",
-          "description": "Sandbox container image. Org-only.",
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Image",
-          "type": "string",
-          "x-merge": "org_only"
-        },
-        "memory": {
-          "default": "2Gi",
-          "description": "Memory limit for the sandbox.",
-          "maxLength": 16,
-          "title": "Memory",
-          "type": "string"
-        },
         "timeout_seconds": {
           "default": 1800,
-          "description": "Wall-clock limit for one implementation run. Cannot exceed limits.max_wall_clock_seconds.",
+          "description": "Wall-clock limit for one implementation run. Lower layers may only lower it; cannot exceed limits.max_wall_clock_seconds.",
           "minimum": 1,
           "title": "Timeout Seconds",
           "type": "integer",
           "x-ceiling": "limits.max_wall_clock_seconds",
-          "x-merge": "tighten_only"
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
         }
       },
       "title": "SandboxConfig",
@@ -1054,13 +872,13 @@
       "additionalProperties": false,
       "properties": {
         "accepted_risks": {
-          "description": "Accepted advisories. Expired entries are ignored with a warning. Lower layers may only add entries.",
+          "description": "Accepted advisories, applied before publication. Expired entries are ignored with a warning. Org-only.",
           "items": {
             "$ref": "#/$defs/AcceptedRisk"
           },
           "title": "Accepted Risks",
           "type": "array",
-          "x-mergeable-set": true
+          "x-merge": "org_only"
         },
         "allowed_hosts": {
           "description": "Hosts intelligence clients may contact. Org-only.",
@@ -1077,10 +895,6 @@
           "minimum": 0,
           "title": "Cache Ttl Seconds",
           "type": "integer"
-        },
-        "local_scanners": {
-          "$ref": "#/$defs/LocalScanners",
-          "description": "Local scanners run in the sandbox when their binaries exist."
         },
         "offline_mode": {
           "default": "low_confidence",
@@ -1140,16 +954,6 @@
       },
       "title": "SecuritySources",
       "type": "object"
-    },
-    "Severity": {
-      "enum": [
-        "blocker",
-        "major",
-        "minor",
-        "nit"
-      ],
-      "title": "Severity",
-      "type": "string"
     },
     "SeverityMapping": {
       "additionalProperties": false,
@@ -1241,30 +1045,33 @@
         },
         "max_skill_bytes": {
           "default": 20480,
-          "description": "Maximum bytes per skill body; larger bodies are truncated with a warning.",
+          "description": "Maximum bytes per skill body; larger bodies are truncated with a warning. Lower layers may only lower it.",
           "minimum": 1,
           "title": "Max Skill Bytes",
           "type": "integer",
           "x-ceiling": "limits.max_skill_bytes",
-          "x-merge": "tighten_only"
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
         },
         "max_skills": {
           "default": 20,
-          "description": "Maximum skills loaded per run.",
+          "description": "Maximum skills loaded per run. Lower layers may only lower it.",
           "minimum": 1,
           "title": "Max Skills",
           "type": "integer",
           "x-ceiling": "limits.max_skills",
-          "x-merge": "tighten_only"
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
         },
         "max_total_bytes": {
           "default": 81920,
-          "description": "Maximum total skill bytes per run.",
+          "description": "Maximum total skill bytes per run. Lower layers may only lower it.",
           "minimum": 1,
           "title": "Max Total Bytes",
           "type": "integer",
           "x-ceiling": "limits.max_total_skill_bytes",
-          "x-merge": "tighten_only"
+          "x-merge": "tighten_only",
+          "x-tighten": "le"
         },
         "paths": {
           "description": "Candidate skill directories in precedence order.",
@@ -1292,6 +1099,16 @@
     "TriggerConfig": {
       "additionalProperties": false,
       "properties": {
+        "allowed_assigners": {
+          "description": "Users who may assign an issue to the bot to start a pam run. Empty means nobody. Lower layers may only shrink the list.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Assigners",
+          "type": "array",
+          "x-merge": "tighten_only",
+          "x-tighten": "subset"
+        },
         "allowed_commenters": {
           "description": "Users whose comments may trigger the squad. Empty means nobody. Lower layers may only shrink the list.",
           "items": {
@@ -1333,8 +1150,8 @@
           "type": "boolean"
         },
         "skip_bot_authors": {
-          "default": true,
-          "description": "Skip change requests and comments authored by bots.",
+          "default": false,
+          "description": "Skip change requests and comments authored by other bots. The bot's own events are always ignored.",
           "title": "Skip Bot Authors",
           "type": "boolean"
         },
@@ -1357,14 +1174,6 @@
           "description": "Skip change requests whose title starts with WIP or Draft.",
           "title": "Skip Wip Titles",
           "type": "boolean"
-        },
-        "slash_commands": {
-          "description": "Slash commands recognised in comments, without the slash.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Slash Commands",
-          "type": "array"
         }
       },
       "title": "TriggerConfig",
@@ -1534,17 +1343,6 @@
           "maxLength": 128,
           "title": "Status Context Template",
           "type": "string"
-        },
-        "status_mode": {
-          "default": "auto",
-          "description": "How verdicts are published. 'auto' prefers check runs and falls back.",
-          "enum": [
-            "check_run",
-            "commit_status",
-            "auto"
-          ],
-          "title": "Status Mode",
-          "type": "string"
         }
       },
       "title": "VcsConfig",
@@ -1559,14 +1357,6 @@
           "minimum": 0,
           "title": "Major Threshold",
           "type": "integer"
-        },
-        "request_changes_on_blocker": {
-          "default": true,
-          "description": "A blocker finding requests changes. Lower layers cannot turn it off.",
-          "title": "Request Changes On Blocker",
-          "type": "boolean",
-          "x-merge": "tighten_only",
-          "x-tighten": "true"
         }
       },
       "title": "VerdictPolicy",
@@ -1620,10 +1410,6 @@
     "llm": {
       "$ref": "#/$defs/LlmConfig",
       "description": "LLM gateway settings."
-    },
-    "observability": {
-      "$ref": "#/$defs/ObservabilityConfig",
-      "description": "Tracing, logging and content capture."
     },
     "ops": {
       "$ref": "#/$defs/OpsConfig",

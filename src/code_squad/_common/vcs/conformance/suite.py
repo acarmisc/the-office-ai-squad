@@ -110,6 +110,30 @@ def check_post_inline_comments(p: VcsProvider) -> None:
     _expect(len(ids) == 1 and all(ids), "one inline comment should yield one id")
 
 
+def check_inline_anchoring(p: VcsProvider) -> None:
+    comments = [
+        InlineComment(s.APP_PATH, 2, "added line"),
+        InlineComment(s.APP_PATH, 1, "context line"),
+        InlineComment(s.APP_PATH, 40, "outside the hunk"),
+    ]
+    ids = p.post_inline_comments(s.REF, s.HEAD, comments, p.get_diff_refs(s.REF))
+    _expect(len(ids) == 3, f"one result per comment, got {ids}")
+    _expect(bool(ids[0]), "added line must be posted")
+    _expect(ids[1] == "" and ids[2] == "", f"unanchorable lines must be rejected {ids}")
+
+
+def check_multi_line_range(p: VcsProvider) -> None:
+    comment = InlineComment(s.APP_PATH, 2, "range", start_line=2)
+    ids = p.post_inline_comments(s.REF, s.HEAD, [comment], p.get_diff_refs(s.REF))
+    _expect(len(ids) == 1 and bool(ids[0]), "multi-line range must be posted")
+
+
+def check_renamed_file_comment(p: VcsProvider) -> None:
+    comment = InlineComment(s.APP_PATH, 2, "renamed", old_path=s.APP_PATH)
+    ids = p.post_inline_comments(s.REF, s.HEAD, [comment], p.get_diff_refs(s.REF))
+    _expect(len(ids) == 1 and bool(ids[0]), "comment with old_path must be posted")
+
+
 def check_upsert_updates_existing(p: VcsProvider) -> None:
     body = f"Updated summary.\n{s.EXISTING_MARKER}"
     first = p.upsert_comment(s.REF, s.EXISTING_MARKER, body)
@@ -213,6 +237,9 @@ ALL_CHECKS: tuple[Check, ...] = (
     check_default_branch,
     check_list_comments,
     check_post_inline_comments,
+    check_inline_anchoring,
+    check_multi_line_range,
+    check_renamed_file_comment,
     check_upsert_updates_existing,
     check_upsert_creates_new,
     check_set_status,

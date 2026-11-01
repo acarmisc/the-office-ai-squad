@@ -75,13 +75,16 @@ config:
     # Org defaults: conservative posting, no approvals.
     vcs:
       approve_mode: none
-      status_mode: auto
       comment_style: both
   projects: {}
 
 otel:
   # Central OTLP collector.
   endpoint: http://otel-collector.observability.svc:4318
+
+sessionStore:
+  # Shared store for michael's webhook and run state. Placeholder host: replace it.
+  url: "redis://session-store.example.internal:6379/0"
 
 hpa:
   # Scale each agent between 2 and 3 replicas on CPU.
@@ -168,6 +171,8 @@ networkPolicy:
   kubeAPIServerCIDRs: ["203.0.113.5/32", "203.0.113.6/32", "203.0.113.7/32"]
   # Egress proxy is not used in this scenario.
   egressProxyCIDRs: []
+  # Session store for michael (several replicas need it). Placeholder CIDR: replace it.
+  sessionStoreCIDRs: ["192.0.2.128/32"]
   # Vulnerability intel hosts for dwight. Resolve and keep current, or route via egressProxy.
   advisoryCIDRs: []
 

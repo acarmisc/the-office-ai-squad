@@ -11,6 +11,7 @@ from strands.models.openai import OpenAIModel
 ModelFactory = Callable[[str, int, float, Sequence[str]], Model]
 
 _DEFAULT_BASE_URL: Final = "http://localhost:4000/v1"
+RESERVED_TAG_NAMESPACES: Final = ("squad", "project", "agent")
 _factory_override: ModelFactory | None = None
 
 
@@ -40,8 +41,25 @@ def litellm_tags(agent: str, project: str | None, extra: Sequence[str]) -> list[
     tags = ["squad:code-squad", f"agent:{agent}"]
     if project:
         tags.append(f"project:{project}")
-    tags.extend(extra)
+    tags.extend(tag for tag in extra if _reserved_namespace(tag) is None)
     return tags
+
+
+def dropped_caller_tags(extra: Sequence[str]) -> list[str]:
+    """Reserved namespaces that caller tags tried to use, in order, without repeats."""
+    dropped: list[str] = []
+    for tag in extra:
+        namespace = _reserved_namespace(tag)
+        if namespace is not None and namespace not in dropped:
+            dropped.append(namespace)
+    return dropped
+
+
+def _reserved_namespace(tag: str) -> str | None:
+    for namespace in RESERVED_TAG_NAMESPACES:
+        if tag.startswith(f"{namespace}:"):
+            return namespace
+    return None
 
 
 def _base_url() -> str:

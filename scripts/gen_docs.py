@@ -31,7 +31,6 @@ from code_squad._common.config.bootstrap import (
 )
 from code_squad._common.config.meta import field_meta
 from code_squad._common.config.schema import (
-    Baseline,
     ProjectsFile,
     RepoConfig,
     SquadFields,
@@ -225,8 +224,6 @@ def _merge_text(model: type[BaseModel], name: str) -> str:
         parts.append(f"capped by {meta.ceiling}")
     if meta.secret_ref:
         parts.append("secret name")
-    if meta.floor:
-        parts.append("floor rules")
     if meta.tool_names:
         parts.append("tool names")
     return ", ".join(parts)
@@ -350,8 +347,6 @@ def render_configuration() -> str:
         "Matches, provider and secret names, `extends`, `overrides`. |",
         "| Repository file (`.squad/config.yml`) | `RepoConfig` | Same keys as the "
         "organisation file plus `extends`. org_only keys are rejected. |",
-        "| Accepted findings (`.squad/baseline.yml`) | `Baseline` | Each entry needs "
-        "an expiry date. Not applied at run time yet. |",
         "",
     ]
     lines.append(f"## {_CONFIG_ANCHOR}")
@@ -379,9 +374,6 @@ def render_configuration() -> str:
     lines.append("## Project registry entries")
     lines.append("")
     lines.extend(_render_model_tree(ProjectsFile, "projects.yaml", expand_squad=False))
-    lines.append("## Accepted findings file")
-    lines.append("")
-    lines.extend(_render_model_tree(Baseline, "baseline.yml", expand_squad=False))
     return "\n".join(lines).rstrip() + "\n"
 
 

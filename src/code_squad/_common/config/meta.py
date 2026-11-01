@@ -10,8 +10,6 @@ and the tighten-only checks. Keys:
   ``true``, ``false``); ``x-order`` gives the enum order used by ``le``.
 - ``x-ceiling``: dotted path into the effective config holding the platform limit.
 - ``x-secret-ref``: the value is a secret name and must match the allowed patterns.
-- ``x-floor``: the value is a rule id (or a map keyed by rule id) that floor rules
-  restrict.
 """
 
 from __future__ import annotations
@@ -35,7 +33,6 @@ class FieldMeta:
     order: tuple[str, ...] = ()
     ceiling: str | None = None
     secret_ref: bool = False
-    floor: bool = False
     tool_names: bool = False
 
 
@@ -52,7 +49,6 @@ def field_meta(model_cls: type[BaseModel], field_name: str) -> FieldMeta:
         order=tuple(str(item) for item in data.get("x-order", ())),
         ceiling=data.get("x-ceiling"),
         secret_ref=bool(data.get("x-secret-ref", False)),
-        floor=bool(data.get("x-floor", False)),
         tool_names=bool(data.get("x-tool-names", False)),
     )
 

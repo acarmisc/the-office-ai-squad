@@ -33,6 +33,10 @@ secrets:
   # Demo Secret created by kind-up.sh (contains only llm-api-key).
   existingSecret: code-squad-secrets
 
+api:
+  # Local demo only: no API token is created, so /invocations and /jobs stay open.
+  allowUnauthenticated: true
+
 networkPolicy:
   # Off in kind: the default CNI does not enforce the policies and the fake LLM is in-cluster.
   enabled: false

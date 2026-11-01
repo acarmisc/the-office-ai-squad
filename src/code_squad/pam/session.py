@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -9,6 +10,7 @@ from code_squad._common.config.schema import ImplementerConfig
 from code_squad._common.sandbox import (
     BudgetExceededError,
     GitCredentials,
+    LocalProcessSandbox,
     LoopDetectedError,
     MonitoredSandbox,
     Sandbox,
@@ -26,7 +28,6 @@ from code_squad._common.untrusted import wrap_untrusted
 from code_squad._common.vcs.base import ChangeRequest, NotFoundError, VcsProvider
 from code_squad.pam.workflow import (
     CheckOutcome,
-    TaskScope,
     branch_name,
     check_task_key,
     commit_message,
@@ -47,6 +48,7 @@ ISSUE_TRACKER_KEY: Final = "issue_tracker"
 SESSION_KEY: Final = "pam_session"
 CLEANUP_KEY: Final = "cleanup"
 REPORT_KEY: Final = "pam_report"
+LOCAL_SANDBOX_ENV: Final = "ALLOW_LOCAL_SANDBOX"
 
 MAX_SANDBOX_COMMANDS: Final = 60
 CHECK_TIMEOUT_S: Final = 900.0
@@ -199,19 +201,22 @@ class ImplementerSession:
         self._publish()
         return self._checks_text(outcomes)
 
-    def commit(self, message: str, scope: TaskScope) -> str:
+    def commit(self, message: str) -> str:
         workspace = self._live()
         candidates = self._changed_paths(workspace)
         if not candidates:
             return "nothing to commit: the working tree has no changes"
         violations = protected_path_violations(
-            candidates, self._config.protected_paths, scope
+            candidates,
+            self._config.protected_paths,
+            self._config.allowed_protected_paths,
         )
         if violations:
             raise PamError(
                 "commit refused, these protected paths would change: "
-                f'{", ".join(violations)}. Pass protected_paths="allow" only when '
-                "the task requires them."
+                f"{', '.join(violations)}. Only the operator's "
+                "implementer.allowed_protected_paths can allow them; leave these "
+                "changes out or describe them for a human."
             )
         touched = protected_paths_touched(candidates, self._config.protected_paths)
         staged = workspace.exec(["git", "add", "-A"])
@@ -303,11 +308,20 @@ class ImplementerSession:
 
     def _open_workspace(self) -> MonitoredSandbox:
         if self._workspace is None:
+            sandbox = self._factory()
+            if isinstance(sandbox, LocalProcessSandbox) and (
+                os.environ.get(LOCAL_SANDBOX_ENV) != "1"
+            ):
+                sandbox.destroy()
+                raise PamError(
+                    "pam requires the Kubernetes sandbox; set ALLOW_LOCAL_SANDBOX=1 "
+                    "only for local development"
+                )
             monitor = TrajectoryMonitor(
                 max_commands=MAX_SANDBOX_COMMANDS,
                 max_wall_clock_s=float(self._config.sandbox.timeout_seconds),
             )
-            self._workspace = MonitoredSandbox(self._factory(), monitor)
+            self._workspace = MonitoredSandbox(sandbox, monitor)
         return self._workspace
 
     def _refuse_protected(self, branch: str, base: str) -> None:

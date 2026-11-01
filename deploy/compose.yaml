@@ -31,6 +31,8 @@ x-agent: &agent
 x-agent-env: &agent-env
   LLM_BASE_URL: http://fake-llm:4000
   LLM_API_KEY: fake-key-for-local-demo
+  # Local demo only: no API token is configured, so the explicit opt-in keeps the API open.
+  SQUAD_ALLOW_UNAUTHENTICATED: "1"
 
 services:
   fake-llm:

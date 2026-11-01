@@ -78,16 +78,16 @@ projects:
     overrides:
       review:
         max_findings: 50
-        chunking: truncate
+        min_severity_inline: major
 """,
     )
     effective = run(registry=registry, project="acme/web-shop")
     assert effective.config.vcs.provider == "gitlab"
     assert effective.config.vcs.base_url == "https://gitlab.example.com"
     assert effective.config.review.max_findings == 7
-    assert effective.config.review.chunking == "truncate"
+    assert effective.config.review.min_severity_inline == "major"
     assert effective.provenance["review.max_findings"] == "registry:acme/web-shop"
-    assert effective.provenance["review.chunking"] == "registry:acme/*"
+    assert effective.provenance["review.min_severity_inline"] == "registry:acme/*"
 
 
 def test_profile_applies_before_the_entry_own_overrides(tmp_path: Path) -> None:
@@ -98,7 +98,7 @@ profiles:
   custom:
     review:
       max_findings: 11
-      chunking: truncate
+      min_severity_inline: major
 projects:
   - match: acme/web-shop
     extends: custom
@@ -109,7 +109,7 @@ projects:
     )
     effective = run(registry=registry)
     assert effective.config.review.max_findings == 4
-    assert effective.config.review.chunking == "truncate"
+    assert effective.config.review.min_severity_inline == "major"
 
 
 def test_a_glob_profile_then_exact_overrides_chain(tmp_path: Path) -> None:

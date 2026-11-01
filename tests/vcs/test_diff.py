@@ -59,3 +59,29 @@ def test_range_outside_all_hunks_is_rejected_and_reversed_range_is_normalised() 
 def test_pure_deletion_hunk_has_no_new_side_lines() -> None:
     file_diff = _file("@@ -3,2 +2,0 @@\n-gone\n-gone too\n")
     assert not line_in_changed_hunk(file_diff, 2, 2)
+
+
+def test_adv07_only_added_lines_are_anchorable_not_context_lines() -> None:
+    from code_squad._common.vcs.base import FileDiff
+    from code_squad._common.vcs.diff import added_range
+
+    patch = "@@ -1,7 +1,8 @@\n a\n b\n c\n+NEW\n d\n e\n f\n"
+    file_diff = FileDiff(
+        path="x.ts",
+        old_path="x.ts",
+        status="modified",
+        hunks=parse_patch(patch),
+        patch=patch,
+        binary=False,
+        truncated=False,
+    )
+    assert [added_range(file_diff, n, n) for n in (1, 3, 4, 5, 8, 9)] == [
+        False,
+        False,
+        True,
+        False,
+        False,
+        False,
+    ]
+    assert not added_range(file_diff, 4, 5)
+    assert not added_range(file_diff, 4, 4 + 1000)

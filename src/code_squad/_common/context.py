@@ -24,6 +24,9 @@ class InvocationContext:
     input_tokens: int = 0
     output_tokens: int = 0
     invalid_finish_attempts: int = 0
+    tool_call_budget: int | None = None
+    max_run_tokens: int | None = None
+    budget_stop: str | None = None
 
 
 _CURRENT: ContextVar[InvocationContext | None] = ContextVar(

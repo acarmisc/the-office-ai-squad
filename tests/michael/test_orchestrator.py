@@ -8,13 +8,14 @@ from code_squad._common.contract import (
     InvocationRequest,
     InvocationResult,
     RunStatus,
+    Stats,
     Verdict,
 )
 from code_squad._common.fake_model import ScriptedModel
 from code_squad._common.findings import summary_marker
 from code_squad._common.vcs.base import Issue
 from code_squad._common.vcs.fake import FakeVcsProvider
-from code_squad.michael.fanout import SpecialistError
+from code_squad.michael.fanout import SpecialistError, SpecialistTimeout
 from code_squad.michael.orchestrator import Orchestrator, orchestrate
 from tests.agents.support import (
     HEAD,
@@ -253,7 +254,12 @@ def test_summarizer_adds_a_narrative_without_changing_the_verdict(
     )
     assert result.verdict is Verdict.REQUEST_CHANGES
     assert "Narrative (generated, not authoritative)" in result.summary
-    assert "Verdict: **request_changes**" in result.summary
+    published = [
+        item.body
+        for item in fake.list_comments(REF)
+        if summary_marker("michael") in item.body
+    ]
+    assert "Verdict: **request_changes**" in published[0]
 
 
 def test_failing_summarizer_falls_back_to_the_deterministic_summary(
@@ -463,3 +469,57 @@ def test_orchestrate_wrapper_runs_the_same_path(tmp_path: Path) -> None:
 
 def question_request(prompt: str = "How does retry work?") -> InvocationRequest:
     return InvocationRequest.model_validate({"prompt": prompt, "mode": "question"})
+
+
+def test_adv02_specialists_are_not_asked_to_post_when_the_request_is_dry_run(
+    tmp_path: Path,
+) -> None:
+    fake = react_provider()
+    specialists = FakeSpecialists(
+        {"jim": result_for("jim"), "dwight": result_for("dwight")}
+    )
+    org = ORG_YAML + "routing:\n  specialists_post: true\n"
+    _run(fake, specialists, tmp_path, request=review_request(post=False), org=org)
+    assert [call.payload["post"] for call in specialists.calls] == [False, False]
+
+
+def test_adv02_forced_organisation_dry_run_reaches_the_specialists(
+    tmp_path: Path,
+) -> None:
+    fake = react_provider()
+    specialists = FakeSpecialists(
+        {"jim": result_for("jim"), "dwight": result_for("dwight")}
+    )
+    org = ORG_YAML + "routing:\n  specialists_post: true\n"
+    org = org.replace("routing:", "posting:\n  force_dry_run: true\nrouting:")
+    _run(fake, specialists, tmp_path, org=org)
+    assert [call.payload["post"] for call in specialists.calls] == [False, False]
+
+
+def test_adv22_michael_does_not_repeat_specialist_token_counts(tmp_path: Path) -> None:
+    fake = react_provider()
+    counted = result_for("jim").model_copy(
+        update={"stats": Stats(input_tokens=1000, output_tokens=200, iterations=3)}
+    )
+    specialists = FakeSpecialists({"jim": counted, "dwight": result_for("dwight")})
+    result = _run(fake, specialists, tmp_path)
+    assert result.stats.input_tokens == 0
+    assert result.stats.output_tokens == 0
+    assert result.stats.iterations == 0
+    assert result.data["specialist_usage"]["jim"]["input_tokens"] == 1000
+
+
+def test_adv17_incomplete_specialist_with_a_blocker_fails_the_status(
+    tmp_path: Path,
+) -> None:
+    fake = react_provider()
+    specialists = FakeSpecialists(
+        {
+            "jim": result_for("jim", findings=[_jim_blocker()]),
+            "dwight": SpecialistTimeout("timed out after 600 s"),
+        }
+    )
+    result = _run(fake, specialists, tmp_path)
+    assert result.verdict is Verdict.REQUEST_CHANGES
+    assert [item["state"] for item in _statuses(fake)] == ["failed"]
+    assert any("incomplete: dwight failed" in item for item in result.warnings)

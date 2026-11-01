@@ -122,7 +122,6 @@ endpoints, evictions and RBAC denials).
 | `ops.redaction_patterns` | `[]` | Extra regular expressions to redact (repository layers may add). |
 | `ops.max_log_lines` | `500` | Lines per log query. |
 | `ops.max_query_points` | `11000` | Points per metrics range query. |
-| `ops.incident_window_minutes` | `120` | Schema only. The correlation window is not applied in this version. |
 | `agents.darryl.enabled`, `model`, `max_tokens`, `max_iterations` | built-in | As for other agents. |
 | `review.*` | see reference | Publication thresholds in review mode. |
 

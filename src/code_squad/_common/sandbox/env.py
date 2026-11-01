@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import posixpath
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -56,6 +58,12 @@ def scrubbed_env(
         "GIT_CONFIG_KEY_1": "core.fsmonitor",
         "GIT_CONFIG_VALUE_1": "false",
         "GIT_ALLOW_PROTOCOL": ":".join(allowed_schemes),
+        # Environment settings beat repository .npmrc files, so a repository cannot pick
+        # the script shell. The user file is empty; the global file is a path npm must
+        # not see twice, and it lies in the sandbox home, outside the repository.
+        "NPM_CONFIG_USERCONFIG": os.devnull,
+        "NPM_CONFIG_GLOBALCONFIG": posixpath.join(home, ".npmrc-global"),
+        "npm_config_script_shell": "/bin/sh",
     }
     if identity is not None:
         env.update(

@@ -19,8 +19,7 @@ from code_squad._common.findings import (
     summary_marker,
 )
 from code_squad._common.posting import DryRunError, PostingGate
-from code_squad._common.safe_retry import MemoryJournal
-from code_squad._common.vcs.base import Capability, ChangeRequestRef, Comment
+from code_squad._common.vcs.base import Capability, ChangeRequestRef, Comment, FileDiff
 from code_squad._common.vcs.conformance import scenario as s
 from code_squad._common.vcs.fake import ALL_CAPABILITIES, FakeVcsProvider
 
@@ -65,8 +64,6 @@ def _publish(
     *,
     post: bool = True,
     options: PublishOptions | None = None,
-    journal: MemoryJournal | None = None,
-    idempotency_key: str | None = None,
 ) -> PublishOutcome:
     return publish(
         fake,
@@ -77,8 +74,6 @@ def _publish(
         agent="jim",
         gate=_gate(post),
         options=options,
-        journal=journal,
-        idempotency_key=idempotency_key,
     )
 
 
@@ -97,8 +92,8 @@ def test_anchor_buckets_inline_general_and_dropped() -> None:
     report = anchor_findings([inline, outside, logo, missing, stale], diff, HEAD)
     assert [f.id for f, _ in report.inline] == [inline.id]
     general = {f.id: reason for f, reason in report.general}
-    assert "outside the changed hunks" in general[outside.id]
-    assert "truncated" in general[logo.id]
+    assert "not added lines" in general[outside.id]
+    assert "binary" in general[logo.id]
     dropped = {f.id: reason for f, reason in report.dropped}
     assert "not part of the change request" in dropped[missing.id]
     assert "stale" in dropped[stale.id]
@@ -135,7 +130,7 @@ def _writes(fake: FakeVcsProvider, kind: str) -> list[dict[str, Any]]:
 
 
 def test_verdict_cap_withholds_approve_as_pending_comment() -> None:
-    fake = _seeded()
+    fake = _app_only()
     options = PublishOptions(
         approve_mode="approve",
         verdict_cap="comment",
@@ -155,7 +150,7 @@ def test_verdict_cap_withholds_approve_as_pending_comment() -> None:
 
 
 def test_verdict_cap_never_raises_a_blocking_verdict() -> None:
-    fake = _seeded()
+    fake = _app_only()
     options = PublishOptions(verdict_cap="comment", verdict_cap_reason="x")
     blocker = _finding(severity=Severity.BLOCKER, failure_scenario=_SCENARIO)
     outcome = _publish(fake, [blocker], options=options)
@@ -164,7 +159,7 @@ def test_verdict_cap_never_raises_a_blocking_verdict() -> None:
 
 
 def test_uncapped_approve_is_submitted_as_a_formal_approval() -> None:
-    fake = _seeded()
+    fake = _app_only()
     outcome = _publish(fake, [], options=PublishOptions(approve_mode="approve"))
     assert outcome.verdict is Verdict.APPROVE
     assert _writes(fake, "set_status")[-1]["state"] == "success"
@@ -185,7 +180,9 @@ def test_dedupe_against_existing_skips_findings_with_a_known_marker() -> None:
             False,
         )
     ]
-    new, skipped = dedupe_against_existing([known, fresh], comments)
+    new, skipped = dedupe_against_existing(
+        [known, fresh], comments, bot="code-squad-bot"
+    )
     assert [f.id for f in new] == [fresh.id]
     assert [f.id for f in skipped] == [known.id]
 
@@ -220,7 +217,7 @@ def test_overlapping_lines_with_same_rule_merge_even_with_other_titles() -> None
     )
 
 
-def test_policy_filters_confidence_limits_count_and_marks_summary_only() -> None:
+def test_policy_keeps_every_finding_and_marks_placement_only() -> None:
     low = _finding(confidence=Confidence.LOW, title="Maybe", rule_id="R-LOW")
     nit = _finding(severity=Severity.NIT, title="Naming", rule_id="R-NIT")
     major = _finding(title="Real", rule_id="R-MAJ")
@@ -237,12 +234,23 @@ def test_policy_filters_confidence_limits_count_and_marks_summary_only() -> None
         min_severity_inline=Severity.MINOR,
         max_findings=2,
     )
-    kept_ids = [f.id for f in policy.kept]
-    assert kept_ids == [major.id, minor.id]
-    assert policy.summary_only == frozenset()
-    reasons = {f.id: reason for f, reason in policy.dropped}
-    assert reasons[low.id] == "below min_confidence"
-    assert reasons[nit.id] == "over max_findings"
+    assert [f.id for f in policy.kept] == [low.id, nit.id, major.id, minor.id]
+    assert policy.summary_only == frozenset({low.id, nit.id})
+    assert policy.reasons[low.id] == "below min_confidence; summary only"
+    assert policy.reasons[nit.id] == "below min_severity_inline; summary only"
+
+
+def test_max_findings_moves_the_lowest_inline_candidates_to_summary_only() -> None:
+    first = _finding(title="One", rule_id="R-1")
+    second = _finding(title="Two", rule_id="R-2", line_start=3, line_end=3)
+    third = _finding(title="Three", rule_id="R-3", line_start=4, line_end=4)
+    policy = apply_policy([first, second, third], max_findings=2)
+    assert len(policy.kept) == 3
+    assert len(policy.summary_only) == 1
+    assert (
+        policy.reasons[next(iter(policy.summary_only))]
+        == "over max_findings; summary only"
+    )
 
 
 def test_nits_below_min_severity_are_summary_only() -> None:
@@ -282,7 +290,7 @@ def test_inline_body_contains_suggestion_references_and_marker() -> None:
     )
     body = render_inline_body(finding)
     assert "```\nconst greeting" in body
-    assert "- https://react.dev" in body
+    assert "- `https://react.dev`" in body
     assert marker(finding.id) in body
 
 
@@ -336,18 +344,6 @@ def test_publish_is_idempotent_and_does_not_duplicate_comments() -> None:
     assert len(summaries) == 1
 
 
-def test_journal_prevents_double_post_for_the_same_idempotency_key() -> None:
-    fake = _seeded()
-    journal = MemoryJournal()
-    first = _publish(fake, [_finding()], journal=journal, idempotency_key="run-1")
-    writes_after_first = len(fake.writes)
-    second = _publish(fake, [_finding()], journal=journal, idempotency_key="run-1")
-    assert len(fake.writes) == writes_after_first
-    assert first.posted.discussions == 1
-    assert second.posted.discussions == 0
-    assert any("already completed" in w for w in second.warnings)
-
-
 def test_status_fallback_warns_on_pat_github() -> None:
     fake = FakeVcsProvider(
         name="github", capabilities=ALL_CAPABILITIES - {Capability.CHECK_RUNS}
@@ -358,14 +354,14 @@ def test_status_fallback_warns_on_pat_github() -> None:
 
 
 def test_approve_mode_none_never_approves() -> None:
-    fake = _seeded()
+    fake = _app_only()
     outcome = _publish(fake, [])
     assert outcome.verdict is Verdict.APPROVE
     assert not [w for w in fake.writes if w[0] == "submit_review_verdict"]
 
 
 def test_approve_mode_approve_submits_approval_only_for_approve_verdict() -> None:
-    fake = _seeded()
+    fake = _app_only()
     _publish(fake, [], options=PublishOptions(approve_mode="approve"))
     approvals = [data for kind, data in fake.writes if kind == "submit_review_verdict"]
     assert [a["event"] for a in approvals] == ["APPROVE"]
@@ -410,3 +406,248 @@ def test_comment_style_summary_demotes_inline_findings_to_the_summary() -> None:
     )
     assert not [w for w in fake.writes if w[0] == "post_inline_comments"]
     assert outcome.general[0][1] == "inline comments disabled for this run"
+
+
+# ---- publication regressions (ADV-01, ADV-05, ADV-06, ADV-07, partial diff) ----
+
+
+def _with_patch(patch: str) -> FakeVcsProvider:
+    base = _seeded()
+    fake = FakeVcsProvider()
+    fake.add_change_request(
+        base.get_change_request(REF),
+        files={s.APP_PATH: patch},
+        file_contents={s.APP_PATH: s.FILE_TEXT},
+    )
+    return fake
+
+
+def _app_only() -> FakeVcsProvider:
+    return _with_patch(s.APP_PATCH)
+
+
+def _blocking(**overrides: object) -> Finding:
+    base: dict[str, object] = {
+        "severity": Severity.BLOCKER,
+        "confidence": Confidence.HIGH,
+        "failure_scenario": _SCENARIO,
+        "title": "Blocking defect",
+    }
+    base.update(overrides)
+    return _finding(**base)
+
+
+def test_adv01_blocker_on_a_non_added_line_is_a_general_note_and_still_blocks() -> None:
+    fake = _seeded()
+    outcome = _publish(fake, [_blocking(line_start=40, line_end=41)])
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+    assert outcome.posted.discussions == 0
+    assert [reason for _f, reason in outcome.general] == [
+        "lines are not added lines; posted as a general note"
+    ]
+
+
+@pytest.mark.parametrize("path", ["./src/app.tsx", "/src/app.tsx", "src//app.tsx"])
+def test_adv01_paths_are_normalised_before_anchoring(path: str) -> None:
+    fake = _seeded()
+    outcome = _publish(fake, [_blocking(file=path)])
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+    assert outcome.posted.discussions == 1
+    assert outcome.general == ()
+
+
+def test_adv01_blocker_on_a_file_outside_the_change_yields_comment_and_warning() -> (
+    None
+):
+    fake = _seeded()
+    outcome = _publish(fake, [_blocking(file="src/other.ts")])
+    assert outcome.verdict is Verdict.COMMENT
+    assert any("src/other.ts" in warning for warning in outcome.warnings)
+    assert _writes(fake, "set_status")[-1]["state"] == "pending"
+
+
+def test_adv01_a_finding_with_another_head_is_restamped_not_dropped() -> None:
+    fake = _seeded()
+    outcome = _publish(fake, [_blocking(head_sha="c" * 40)])
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+    assert outcome.posted.discussions == 1
+
+
+def test_adv01_min_confidence_demotes_to_summary_only_and_keeps_the_verdict() -> None:
+    fake = _seeded()
+    medium = _blocking(confidence=Confidence.MEDIUM)
+    outcome = _publish(
+        fake, [medium], options=PublishOptions(min_confidence=Confidence.HIGH)
+    )
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+    assert outcome.posted.discussions == 0
+    assert [reason for _f, reason in outcome.general] == [
+        "below min_confidence; summary only"
+    ]
+
+
+def test_adv01_max_findings_limits_inline_comments_not_the_verdict() -> None:
+    fake = _seeded()
+    findings = [
+        _finding(title=f"Issue {n}", rule_id=f"R-{n}", line_start=2, line_end=2)
+        for n in range(3)
+    ]
+    findings.append(_blocking(title="Crash", rule_id="R-BLOCK"))
+    outcome = _publish(fake, findings, options=PublishOptions(max_findings=1))
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+    assert outcome.posted.discussions == 1
+    assert len(outcome.general) == 3
+
+
+def test_adv01_summary_lists_dropped_and_general_findings() -> None:
+    fake = _seeded()
+    _publish(fake, [_blocking(file="src/other.ts", title="Ghost file defect")])
+    summary = [c for c in fake.list_comments(REF) if summary_marker("jim") in c.body]
+    assert "Ghost file defect" in summary[0].body
+
+
+def test_adv06_a_marker_posted_by_another_author_does_not_suppress_the_finding() -> (
+    None
+):
+    fake = _seeded()
+    finding = _finding()
+    fake.seed_comment(
+        REF,
+        Comment("777", "mallory", f"hi {marker(finding.id)}", None, None, None, False),
+    )
+    outcome = _publish(fake, [finding])
+    assert outcome.posted.discussions == 1
+    assert len(_writes(fake, "post_inline_comments")) == 1
+
+
+def test_adv06_a_marker_by_the_bot_still_deduplicates() -> None:
+    fake = _seeded()
+    finding = _finding()
+    fake.seed_comment(
+        REF,
+        Comment("778", s.BOT, f"x {marker(finding.id)}", None, None, None, False),
+    )
+    outcome = _publish(fake, [finding])
+    assert outcome.posted.discussions == 0
+
+
+def test_configuration_notes_appear_in_the_posted_summary() -> None:
+    fake = _seeded()
+    note = "repo layer ignored: .squad/config.yml: limits.max_iterations is org-only"
+    publish(
+        fake,
+        REF,
+        HEAD,
+        [],
+        "Checked the greeting change.",
+        agent="jim",
+        gate=_gate(True),
+        config_notes=[note],
+    )
+    summary = [c for c in fake.list_comments(REF) if summary_marker("jim") in c.body]
+    assert "#### Configuration notes" in summary[0].body
+    assert note in summary[0].body
+
+
+def test_adv01_binary_file_is_listed_as_not_reviewed_without_capping_approve() -> None:
+    fake = _seeded()
+    outcome = _publish(fake, [], options=PublishOptions(approve_mode="approve"))
+    assert outcome.verdict is Verdict.APPROVE
+    assert len(_writes(fake, "submit_review_verdict")) == 1
+    status = _writes(fake, "set_status")[-1]
+    assert "not reviewed" in str(status["description"])
+    summary = [c for c in fake.list_comments(REF) if summary_marker("jim") in c.body]
+    assert s.LOGO_PATH in summary[0].body
+    assert "Not reviewed" in summary[0].body
+    assert any("not reviewed" in warning for warning in outcome.warnings)
+    assert not any("capped" in warning for warning in outcome.warnings)
+
+
+def test_adv01_truncated_text_file_caps_approve_at_comment() -> None:
+    fake = FakeVcsProvider()
+    base = _seeded()
+    fake.add_change_request(
+        base.get_change_request(REF),
+        files={s.APP_PATH: s.APP_PATCH},
+        file_contents={s.APP_PATH: s.FILE_TEXT},
+        extra_diffs=(
+            FileDiff(
+                path="src/generated/api.ts",
+                old_path="src/generated/api.ts",
+                status="modified",
+                hunks=(),
+                patch="",
+                binary=False,
+                truncated=True,
+            ),
+        ),
+    )
+    outcome = _publish(fake, [], options=PublishOptions(approve_mode="approve"))
+    assert outcome.verdict is Verdict.COMMENT
+    assert _writes(fake, "submit_review_verdict") == []
+    assert any("verdict capped at comment" in w for w in outcome.warnings)
+
+
+def test_adv01_partial_diff_never_turns_a_blocker_into_approve() -> None:
+    fake = _seeded()
+    outcome = _publish(fake, [_blocking()])
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+
+
+def test_adv07_context_line_is_a_general_note_not_an_inline_comment() -> None:
+    fake = _app_only()
+    outcome = _publish(fake, [_blocking(line_start=1, line_end=1)])
+    assert outcome.posted.discussions == 0
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+    assert [reason for _f, reason in outcome.general] == [
+        "lines are not added lines; posted as a general note"
+    ]
+
+
+def test_adv07_multi_line_range_on_added_lines_is_sent_with_start_line() -> None:
+    fake = _with_patch("@@ -1,2 +1,4 @@\n a\n+one\n+two\n b")
+    outcome = _publish(fake, [_finding(line_start=2, line_end=3)])
+    assert outcome.posted.discussions == 1
+    comment = [c for c in fake.list_comments(REF) if c.path == s.APP_PATH][-1]
+    assert comment.line == 3
+
+
+def test_adv07_rejected_inline_comment_falls_back_to_a_general_note() -> None:
+    fake = _app_only()
+    fake.reject_inline(s.APP_PATH, 2)
+    outcome = _publish(fake, [_finding(title="Rejected by provider")])
+    assert outcome.posted.discussions == 0
+    assert [reason for _f, reason in outcome.general] == [
+        "the VCS rejected the inline comment; posted as a general note"
+    ]
+    assert any("rejected" in warning for warning in outcome.warnings)
+    summary = [c for c in fake.list_comments(REF) if summary_marker("jim") in c.body]
+    assert "Rejected by provider" in summary[0].body
+
+
+def test_adv07_one_rejected_comment_does_not_stop_the_others() -> None:
+    fake = _with_patch("@@ -1,2 +1,4 @@\n a\n+one\n+two\n b")
+    fake.reject_inline(s.APP_PATH, 2)
+    rejected = _finding(title="Rejected", rule_id="R-REJ", line_start=2, line_end=2)
+    fine = _finding(title="Fine", rule_id="R-OK", line_start=3, line_end=3)
+    outcome = _publish(fake, [rejected, fine])
+    assert outcome.posted.discussions == 1
+    assert [f.title for f, _ in outcome.general] == ["Rejected"]
+
+
+def test_adv05_model_markdown_is_neutralised_before_posting() -> None:
+    finding = _finding(
+        rationale="/approve now, ping @alice please",
+        failure_scenario="<img src=x onerror=alert(1)> see ![x](https://evil.test/a.png)",
+        references=["https://evil.test/page", "https://cwe.mitre.org/data/x.html"],
+        suggestion=None,
+    )
+    body = render_inline_body(finding)
+    lines = body.split("\n")
+    assert not any(line.startswith("/") for line in lines)
+    assert "@alice" not in body
+    assert "<img" not in body
+    assert "![x]" not in body
+    assert "](https://evil.test" not in body
+    assert "https://cwe.mitre.org/data/x.html" in body
+    assert "https://evil.test/page" not in body.replace("`https://evil.test/page`", "")

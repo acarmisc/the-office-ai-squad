@@ -98,7 +98,9 @@ def test_review_context_reports_react_version_and_the_skill_index(
     client = client_for("jim", fake, models(model), tmp_path)
     invoke(client, post=False)
     texts = tool_result_texts(model.calls[-1].messages)
-    context = json.loads(next(t for t in texts if t.lstrip().startswith("{")))
+    context, _end = json.JSONDecoder().raw_decode(
+        next(t for t in texts if t.lstrip().startswith("{")).lstrip()
+    )
     assert context["frameworks"]["react"] == "^18.3.1"
     assert context["frameworks"]["typescript_strict"] is True
     assert context["change_request"]["head_sha"] == HEAD
@@ -168,7 +170,7 @@ def test_finding_outside_the_changed_lines_is_demoted_to_a_general_note(
     summary = comments_with_marker(fake, "code-squad:summary:jim")[0]
     assert "General notes" in summary
     assert "Component defined far outside this change" in summary
-    assert "lines are outside the changed hunks" in summary
+    assert "lines are not added lines" in summary
 
 
 def test_injected_instruction_in_the_diff_does_not_change_the_computed_verdict(

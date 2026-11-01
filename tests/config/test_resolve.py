@@ -90,10 +90,12 @@ projects:
 """,
     )
     org = org_from("agents:\n  dwight:\n    model: sonnet-5-5\n", tmp_path)
-    effective = run(org=org, registry=registry, repo="review:\n  chunking: truncate\n")
+    effective = run(
+        org=org, registry=registry, repo="review:\n  min_severity_inline: major\n"
+    )
     assert effective.provenance["vcs.provider"] == "registry:acme/*"
     assert effective.provenance["agents.dwight.model"] == "org"
-    assert effective.provenance["review.chunking"] == "repo"
+    assert effective.provenance["review.min_severity_inline"] == "repo"
     assert effective.provenance["review.max_findings"] == "default"
 
 
@@ -151,15 +153,18 @@ def test_empty_repo_file_is_harmless(tmp_path: Path) -> None:
 
 REPO_VIOLATIONS: dict[str, str] = {
     "approve_mode_more_permissive": "vcs:\n  approve_mode: approve\n",
-    "request_changes_turned_off": (
-        "review:\n  verdict:\n    request_changes_on_blocker: false\n"
+    "org_only_accepted_risk": (
+        "security:\n  accepted_risks:\n"
+        "    - id: CVE-2024-1\n      reason: x\n      expires: 2099-01-01\n"
     ),
     "add_egress_host": "security:\n  allowed_hosts: [api.osv.dev, exfil.example]\n",
     "add_tool_to_allowlist": (
         "agents:\n  dwight:\n    tool_allowlist: [read_file, search_repo]\n"
     ),
-    "disable_floor_rule": "agents:\n  dwight:\n    disabled_rules: [SEC-SECRETS-001]\n",
-    "budget_above_limits": "agents:\n  dwight:\n    budgets:\n      tokens: 500000\n",
+    "org_only_model_allowance": "llm:\n  allowed_models: [any-model]\n",
+    "budget_raised_above_inherited": (
+        "agents:\n  dwight:\n    budgets:\n      wall_clock_seconds: 1000\n"
+    ),
     "change_vcs_base_url": "vcs:\n  base_url: https://evil.example\n",
     "secret_outside_patterns": "vcs:\n  auth:\n    token_secret: Prod.Token\n",
     "skills_ref_head": "skills:\n  ref: head\n",
@@ -186,11 +191,14 @@ def test_repo_violation_drops_the_whole_layer(tmp_path: Path, name: str) -> None
 def test_violation_message_names_the_key(tmp_path: Path) -> None:
     effective = run(
         org=org_from(None, tmp_path),
-        repo="agents:\n  dwight:\n    disabled_rules: [SEC-INJ-002]\n",
+        repo=(
+            "security:\n  accepted_risks:\n"
+            "    - id: CVE-2024-1\n      reason: x\n      expires: 2099-01-01\n"
+        ),
     )
     message = " ".join(effective.warnings)
-    assert "agents.dwight.disabled_rules" in message
-    assert "SEC-INJ-002" in message
+    assert "security.accepted_risks" in message
+    assert "org-only" in message
 
 
 def test_org_forced_dry_run_is_kept_when_repo_restates_it(tmp_path: Path) -> None:
@@ -218,10 +226,16 @@ CALL_VIOLATIONS: dict[str, dict[str, Any]] = {
     "enable_writes": {"posting": {"force_dry_run": False}},
     "add_egress_host": {"security": {"allowed_hosts": ["exfil.example"]}},
     "add_tool": {"agents": {"dwight": {"tool_allowlist": ["publish_review"]}}},
-    "disable_floor": {"agents": {"dwight": {"disabled_rules": ["SEC-XSS-001"]}}},
+    "accept_risk": {
+        "security": {
+            "accepted_risks": [
+                {"id": "CVE-2024-1", "reason": "x", "expires": "2099-01-01"}
+            ]
+        }
+    },
     "raise_budget": {"agents": {"dwight": {"budgets": {"tool_calls": 9000}}}},
     "change_base_url": {"vcs": {"base_url": "https://evil.example"}},
-    "bad_secret": {"llm": {"api_key_secret": "Not.Allowed"}},
+    "allow_model": {"llm": {"allowed_models": ["any-model"]}},
     "skills_head": {"skills": {"ref": "head"}},
     "approve_more_permissive": {"vcs": {"approve_mode": "approve"}},
 }
@@ -311,7 +325,7 @@ projects:
       agents:
         dwight:
           budgets:
-            tokens: 999999
+            wall_clock_seconds: 9999
 """,
     )
     with pytest.raises(ConfigError, match="platform ceiling"):

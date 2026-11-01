@@ -12,7 +12,6 @@ from code_squad._common.sandbox.errors import SandboxError
 from code_squad._common.sandbox.policy import validate_ref
 
 PackageManager = Literal["npm", "pnpm", "yarn"]
-TaskScope = Literal["default", "requires_protected_paths"]
 
 MAX_TITLE_CHARS: Final = 200
 MAX_BODY_CHARS: Final = 60_000
@@ -155,12 +154,16 @@ def _mapping(value: Any) -> dict[str, Any]:
 
 
 def protected_path_violations(
-    changed: Sequence[str], protected_globs: Sequence[str], scope: TaskScope
+    changed: Sequence[str],
+    protected_globs: Sequence[str],
+    allowed_globs: Sequence[str],
 ) -> list[str]:
-    """Protected paths that must not be committed. Empty when the task requires them."""
-    if scope == "requires_protected_paths":
-        return []
-    return protected_paths_touched(changed, protected_globs)
+    """Protected paths that the operator's configuration does not allow to change."""
+    return [
+        path
+        for path in protected_paths_touched(changed, protected_globs)
+        if not any(glob_match(pattern, path) for pattern in allowed_globs)
+    ]
 
 
 def protected_paths_touched(
@@ -233,7 +236,8 @@ def _protected_section(paths: Sequence[str]) -> str:
     bullets = "\n".join(f"- `{path}`" for path in paths)
     return (
         "## Protected paths touched\n\n"
-        f"{bullets}\n\nThese paths were changed because the task requires them."
+        f"{bullets}\n\nThese paths match implementer.allowed_protected_paths in the "
+        "operator's configuration."
     )
 
 

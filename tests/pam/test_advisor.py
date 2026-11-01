@@ -25,7 +25,7 @@ MUTATING_CALLS = [
     call("apply_patch", patch="--- a/README.md\n+++ b/README.md\n"),
     call("run_command", argv=["git", "status"]),
     call("run_checks"),
-    call("commit", message="add greeting", protected_paths="refuse"),
+    call("commit", message="add greeting"),
     call("push_branch"),
     call(
         "open_change_request",

@@ -83,10 +83,6 @@ def test_validate_detects_each_kind(runner: CliRunner, tmp_path: Path) -> None:
         "org/squad.yaml": "review:\n  max_findings: 3\n",
         "registry/projects.yaml": "projects:\n  - match: acme/web-shop\n",
         "registry/profiles/team.yaml": "review:\n  max_findings: 4\n",
-        "repo/.squad/baseline.yml": (
-            "accepted:\n  - rule_id: R-1\n    file: a.ts\n    reason: x\n"
-            "    expires: 2027-01-01\n"
-        ),
     }
     paths = [write(tmp_path, name, text) for name, text in files.items()]
     result = runner.invoke(app, ["config", "validate", *map(str, paths)])
@@ -94,20 +90,6 @@ def test_validate_detects_each_kind(runner: CliRunner, tmp_path: Path) -> None:
     assert "(org)" in result.output
     assert "(projects)" in result.output
     assert "(profile)" in result.output
-    assert "(baseline)" in result.output
-
-
-def test_validate_fails_a_baseline_without_expiry(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    bad = write(
-        tmp_path,
-        ".squad/baseline.yml",
-        "accepted:\n  - rule_id: R-1\n    file: a.ts\n    reason: x\n",
-    )
-    result = runner.invoke(app, ["config", "validate", str(bad)])
-    assert result.exit_code == 1
-    assert "expires" in result.output
 
 
 def test_validate_reports_yaml_errors(runner: CliRunner, tmp_path: Path) -> None:
@@ -129,7 +111,7 @@ def _org_and_registry(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_explain_json_shows_provenance(runner: CliRunner, tmp_path: Path) -> None:
     org, registry = _org_and_registry(tmp_path)
-    repo = write(tmp_path, "config.yml", "review:\n  chunking: truncate\n")
+    repo = write(tmp_path, "config.yml", "review:\n  min_confidence_to_publish: low\n")
     result = runner.invoke(
         app,
         [
@@ -154,7 +136,7 @@ def test_explain_json_shows_provenance(runner: CliRunner, tmp_path: Path) -> Non
         "value": 11,
         "layer": "org",
     }
-    assert rows["review.chunking"]["layer"] == "repo"
+    assert rows["review.min_confidence_to_publish"]["layer"] == "repo"
     assert rows["vcs.provider"]["layer"] == "registry:acme/web-shop"
 
 

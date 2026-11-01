@@ -89,8 +89,11 @@ _LOG_FIELDS: Final = (
     "iterations",
     "tool",
     "invocation_id",
+    "error_type",
 )
 _TRACER_NAME: Final = "code_squad"
+_ORCHESTRATOR: Final = "michael"
+_QUESTION_INTENT: Final = "question"
 _SAFE_SPAN_ATTRIBUTES: Final = frozenset(
     {
         "agent",
@@ -115,6 +118,8 @@ class JsonFormatter(logging.Formatter):
         for key in _LOG_FIELDS:
             if hasattr(record, key):
                 entry[key] = getattr(record, key)
+        if record.exc_info is not None:
+            entry["traceback"] = self.formatException(record.exc_info)
         return json.dumps(entry, default=str)
 
 
@@ -155,6 +160,8 @@ def record_result(result: InvocationResult, duration_seconds: float) -> None:
     agent = result.agent
     INVOCATIONS.labels(agent=agent, status=result.status.value).inc()
     INVOCATION_SECONDS.labels(agent=agent).observe(duration_seconds)
+    if not _counts_own_usage(result):
+        return
     ITERATIONS.labels(agent=agent).observe(result.stats.iterations)
     TOKENS.labels(agent=agent, kind="input").inc(result.stats.input_tokens)
     TOKENS.labels(agent=agent, kind="output").inc(result.stats.output_tokens)
@@ -166,6 +173,14 @@ def record_result(result: InvocationResult, duration_seconds: float) -> None:
             )
     for finding in result.findings:
         FINDINGS.labels(agent=agent, severity=finding.severity.value).inc()
+
+
+def _counts_own_usage(result: InvocationResult) -> bool:
+    """michael's mr_review, incident and implement results carry the specialists'
+    usage and findings, which the specialist processes already counted."""
+    if result.agent != _ORCHESTRATOR:
+        return True
+    return result.data.get("intent") == _QUESTION_INTENT
 
 
 def _known_tool_class(name: str) -> ToolClass | None:

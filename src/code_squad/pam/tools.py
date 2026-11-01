@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import Any, Final, Literal, cast
+from typing import Any, Final, cast
 
 from strands import tool
 from strands.types.tools import ToolContext
@@ -30,7 +30,7 @@ from code_squad.pam.session import (
     ImplementerSession,
     PamError,
 )
-from code_squad.pam.workflow import TaskScope, WorkflowError
+from code_squad.pam.workflow import WorkflowError
 
 MAX_ISSUE_CHARS: Final = 8000
 _ISSUE_NUMBER: Final = re.compile(r"^#?(\d{1,9})$")
@@ -298,29 +298,20 @@ def run_checks(tool_context: ToolContext) -> str:
 
 
 @tool(context=True)
-def commit(
-    message: str,
-    protected_paths: Literal["refuse", "allow"],
-    tool_context: ToolContext,
-) -> str:
+def commit(message: str, tool_context: ToolContext) -> str:
     """Stage all changes and commit them with the configured commit template.
 
     Commits that change protected paths (CI files, lockfiles, ...) are refused unless
-    protected_paths is "allow", which is only correct when the task requires those
-    paths. Such changes are listed in the change request.
+    the operator's configuration allows those paths. Allowed paths are listed in the
+    change request.
 
     Args:
         message: One-line summary of the change.
-        protected_paths: "refuse" by default. "allow" only when the task requires
-            changing protected paths.
     """
-    scope: TaskScope = (
-        "requires_protected_paths" if protected_paths == "allow" else "default"
-    )
     return _within(
         tool_context,
         _implementer("commit"),
-        lambda session: session.commit(message, scope),
+        lambda session: session.commit(message),
     )
 
 

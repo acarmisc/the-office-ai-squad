@@ -5,4 +5,3 @@ review:
   min_severity_inline: minor
   verdict:
     major_threshold: 1
-    request_changes_on_blocker: true

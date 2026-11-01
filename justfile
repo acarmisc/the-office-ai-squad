@@ -62,6 +62,7 @@ run-local agent:
 
 invoke agent prompt url="http://localhost:8080":
     curl -sS -X POST {{url}}/invocations -H 'content-type: application/json' \
+      ${SQUAD_API_TOKEN:+-H "authorization: Bearer ${SQUAD_API_TOKEN}"} \
       -d "$(jq -n --arg p '{{prompt}}' '{prompt:$p, post:false}')"
 
 kind-up:

@@ -4,6 +4,10 @@ import pytest
 
 from code_squad.darryl.redact import EmailPolicy, redact
 
+# Built at runtime so no provider-shaped literal is committed (push protection).
+FAKE_STRIPE_LIVE = "sk" + "_live_" + "fakefakefakefake00"
+FAKE_STRIPE_TEST = "rk" + "_test_" + "fakefakefakefake00"
+
 FAKE_GH = "ghp_" + "F" * 36
 FAKE_GITLAB = "glpat-" + "x" * 20
 FAKE_AWS = "AKIA" + "X" * 16
@@ -29,7 +33,41 @@ FAKE_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlZmFrZQ"
         ('MY_SECRET="top secret value"', "top secret", 'MY_SECRET="<redacted>"'),
         ("aws_secret_access_key = wJalrXUtnFEMI", "wJalrXUtnFEMI", "<redacted>"),
         ("passwd=pw123", "pw123", "passwd=<redacted>"),
-        ("GITHUB_TOKEN_FILE=/run/secrets/x", "", "GITHUB_TOKEN_FILE=/run/secrets/x"),
+        (
+            "GITHUB_TOKEN_FILE=/run/secrets/x",
+            "/run/secrets/x",
+            "GITHUB_TOKEN_FILE=<redacted>",
+        ),
+        ('{"name":"DB_PASS","value":"s3cr3tpw"}', "s3cr3tpw", '"value":"<redacted>"'),
+        (
+            '{"name": "STRIPE_KEY", "value": "' + FAKE_STRIPE_LIVE + '"}',
+            FAKE_STRIPE_LIVE,
+            "<redacted:stripe-key>",
+        ),
+        ("DB_PASS=s3cr3tpw", "s3cr3tpw", "DB_PASS=<redacted>"),
+        ('{"name":"API_TOKEN","value":"abc"}', '"abc"', '"value":"<redacted>"'),
+        ("PGPASSWORD=abc psql", "=abc", "PGPASSWORD=<redacted> psql"),
+        (
+            "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI",
+            "wJalrXUtnFEMI",
+            "AWS_SECRET_ACCESS_KEY=<redacted>",
+        ),
+        (
+            "AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI",
+            "wJalrXUtnFEMI",
+            "AWS_SECRET_ACCESS_KEY: <redacted>",
+        ),
+        (
+            "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXXXXXXXXXXXXXX",
+            "XXXXXXXXXXXXXXXXXXXXXXXX",
+            "<redacted:slack-webhook>",
+        ),
+        (
+            "https://x.blob.core.windows.net/c?sig=abcd1234&se=2030",
+            "abcd1234",
+            "sig=<redacted>&se=2030",
+        ),
+        (FAKE_STRIPE_TEST, "fakefakefakefake00", "<redacted:stripe-key>"),
         (f"token {FAKE_GH} used", FAKE_GH, "<redacted:github-token>"),
         (f"clone with {FAKE_GITLAB}", FAKE_GITLAB, "<redacted:gitlab-token>"),
         (f"key {FAKE_AWS} leaked", FAKE_AWS, "<redacted:aws-access-key-id>"),
@@ -49,6 +87,23 @@ def test_each_pattern_masks_its_secret(
     assert must_contain in out
     if must_not_contain:
         assert must_not_contain not in out
+
+
+def test_gcp_service_account_private_key_is_masked_in_json() -> None:
+    raw = (
+        '{"type": "service_account", "private_key": '
+        '"-----BEGIN PRIVATE KEY-----\\n'  # secret-scan: allow
+        'MIIEFAKEBODY\\n-----END PRIVATE KEY-----\\n", '
+        '"client_email": "bot@example.test"}'
+    )
+    out = redact(raw)
+    assert "MIIEFAKEBODY" not in out
+    assert "bot@example.test" in out
+
+
+def test_lowercase_keys_that_only_contain_a_secret_word_are_not_env_masked() -> None:
+    text = "max_tokens: 4096\ntoken_count=5\nDB_HOST=db.internal"
+    assert redact(text) == text
 
 
 def test_pem_private_key_block_is_removed_whole() -> None:

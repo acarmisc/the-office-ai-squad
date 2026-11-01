@@ -520,11 +520,46 @@ def test_issue_assigned_to_bot_runs_implement() -> None:
     issue = WebhookEvent(
         "github", "issue", "assigned", "acme/web", 9, "alice", assignees=(BOT,)
     )
-    assert (_decide(issue).run, _decide(issue).intent) == (True, "implement")
+    decision = _decide(issue, allowed_assigners=("alice",))
+    assert (decision.run, decision.intent) == (True, "implement")
     other = WebhookEvent(
         "github", "issue", "assigned", "acme/web", 9, "alice", assignees=("carol",)
     )
-    assert _decide(other).run is False
+    assert _decide(other, allowed_assigners=("alice",)).run is False
+
+
+def test_issue_assignment_is_ignored_unless_the_assigner_is_allowed() -> None:
+    issue = WebhookEvent(
+        "github", "issue", "assigned", "acme/web", 9, "mallory", assignees=(BOT,)
+    )
+    unset = _decide(issue)
+    assert unset.run is False
+    assert "allowed_assigners is empty" in unset.reason
+    denied = _decide(issue, allowed_assigners=("alice",))
+    assert denied.run is False
+    assert denied.reason == "assigner is not in trigger.allowed_assigners"
+    allowed = WebhookEvent(
+        "github", "issue", "assigned", "acme/web", 9, "Alice", assignees=(BOT,)
+    )
+    assert _decide(allowed, allowed_assigners=("alice",)).run is True
+
+
+def test_gitlab_issue_is_ignored_for_an_assigner_outside_the_list() -> None:
+    payload = {
+        "object_kind": "issue",
+        "project": {"path_with_namespace": "acme/web"},
+        "user": {"username": "mallory"},
+        "object_attributes": {"iid": 7, "action": "open", "title": "Fix it"},
+        "assignees": [{"username": BOT}],
+        "labels": [],
+    }
+    event = parse_gitlab_event({}, payload)
+    assert event is not None and event.author == "mallory"
+    assert _decide(event, allowed_assigners=("alice",)).run is False
+    payload["user"] = {"username": "alice"}
+    event = parse_gitlab_event({}, payload)
+    assert event is not None
+    assert _decide(event, allowed_assigners=("alice",)).run is True
 
 
 def test_issue_comments_support_implement_and_help_but_not_reviews() -> None:
@@ -615,7 +650,10 @@ def test_comments_and_issue_assignments_follow_trigger_events() -> None:
         "github", "issue", "assigned", "acme/web", 9, "alice", assignees=(BOT,)
     )
     assert _decide(issue, events=()).reason == "event not enabled in trigger.events"
-    assert _decide(issue, events=("issue_assigned",)).run is True
+    assert (
+        _decide(issue, events=("issue_assigned",), allowed_assigners=("alice",)).run
+        is True
+    )
 
 
 def test_unhandled_actions_keep_their_own_reason_under_any_events() -> None:

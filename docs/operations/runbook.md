@@ -69,8 +69,8 @@ The log does not contain prompts, diffs, comments, tokens or secrets. Use `invoc
 and the result's `stats.config_hash` to tie it to the configuration that produced it. Typical messages: `invocation finished`,
 `webhook job finished`, `webhook job failed`, `agent failed to load`, and the configuration reload warnings.
 
-Set `LOG_LEVEL` to `DEBUG` only for a short investigation. The configuration key `observability.log_level` is not applied; the
-environment variable is.
+Set `LOG_LEVEL` to `DEBUG` only for a short investigation. The configuration key `observability.log_level` was removed; the
+environment variable is the only setting.
 
 ## Cost tracking
 
@@ -78,8 +78,8 @@ Every model call carries LiteLLM metadata tags: `squad:code-squad`, `agent:<id>`
 project, and any `litellm_tags` the caller added (at most 20, each `key:value`). In the gateway, group spend by these tags.
 
 The squad's own cost fields are weaker than the gateway's: `stats.input_tokens` and `stats.output_tokens` are reported per result,
-and `stats.cost_hint` is never set in this version. `llm.budget_usd_per_day` is declared but not enforced. For a hard cap, use the
-gateway's budgets keyed on the `project:` tag. See [recipe 9](../configuration/recipes.md#9-per-project-llm-budget).
+and `stats.cost_hint` is never set in this version. `limits.max_run_tokens` is a hard ceiling per run, across all turns. For a daily
+spend cap, use the gateway's budgets keyed on the `project:` tag. See [recipe 9](../configuration/recipes.md#9-bound-the-spend-of-one-run).
 
 ## Common failures and fixes
 

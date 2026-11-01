@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from code_squad._common.config.schema import ImplementerConfig
 from code_squad._common.contract import RunStatus, Verdict
 from code_squad._common.fake_model import ScriptedModel, Turn
@@ -42,7 +44,7 @@ def _happy_path(path: str = "src/greeting.js", content: str = GREETING) -> list[
         call("start_work", task_key="ENG-1", summary="Add greeting"),
         call("write_file", path=path, content=content),
         call("run_checks"),
-        call("commit", message="add greeting", protected_paths="refuse"),
+        call("commit", message="add greeting"),
         call("push_branch"),
         call(
             "open_change_request",
@@ -195,17 +197,39 @@ def test_start_work_refuses_a_template_that_resolves_to_the_base_branch(
     assert harness.created == []
 
 
-def test_protected_path_commit_is_refused_until_the_task_allows_it(
+def _ci_change_turns() -> list[Turn]:
+    return [
+        call("start_work", task_key="ENG-1", summary="Add greeting"),
+        call("write_file", path=CI_PATH, content="name: ci\n"),
+        call("write_file", path="src/greeting.js", content=GREETING),
+        call("commit", message="add greeting"),
+    ]
+
+
+def test_protected_path_commit_is_refused_without_operator_allowance(
     tmp_path: Path,
 ) -> None:
     harness = make_harness(tmp_path, _app_files())
     model = ScriptedModel(
         [
-            call("start_work", task_key="ENG-1", summary="Add greeting"),
-            call("write_file", path=CI_PATH, content="name: ci\n"),
-            call("write_file", path="src/greeting.js", content=GREETING),
-            call("commit", message="add greeting", protected_paths="refuse"),
-            call("commit", message="add greeting", protected_paths="allow"),
+            *_ci_change_turns(),
+            finish_call("Stopped: the CI change is not allowed.", PLAN),
+        ]
+    )
+    result = run(harness, [model])
+
+    texts = results_of(model)
+    assert any("commit refused" in text and CI_PATH in text for text in texts)
+    assert "allowed_protected_paths" in " ".join(texts)
+    assert result.data["protected_paths_touched"] == []
+    assert harness.provider.writes == []
+
+
+def test_protected_path_commit_is_allowed_only_by_configuration(tmp_path: Path) -> None:
+    harness = make_harness(tmp_path, _app_files())
+    model = ScriptedModel(
+        [
+            *_ci_change_turns(),
             call("push_branch"),
             call(
                 "open_change_request",
@@ -218,10 +242,9 @@ def test_protected_path_commit_is_refused_until_the_task_allows_it(
             finish_call("Done with a CI change.", PLAN),
         ]
     )
-    result = run(harness, [model])
+    config = ImplementerConfig(allowed_protected_paths=[".github/**", CI_PATH])
+    result = run(harness, [model], config=config)
 
-    texts = results_of(model)
-    assert any("commit refused" in text and CI_PATH in text for text in texts)
     assert result.data["protected_paths_touched"] == [CI_PATH]
     assert result.status is RunStatus.COMPLETE
     change_request = harness.provider.get_change_request(ChangeRequestRef(PROJECT, 1))
@@ -334,3 +357,24 @@ def test_work_starts_from_the_provider_default_branch(tmp_path: Path) -> None:
     assert text.startswith("refused: git clone failed")
     assert "trunk" in text
     assert harness.branches() == ["main"]
+
+
+def test_implementer_refuses_the_local_sandbox_without_the_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("ALLOW_LOCAL_SANDBOX", raising=False)
+    harness = make_harness(tmp_path, _app_files())
+    model = ScriptedModel(
+        [
+            call("start_work", task_key="ENG-1", summary="Add greeting"),
+            finish_call("Stopped: no sandbox.", PLAN),
+        ]
+    )
+    result = run(harness, [model])
+
+    texts = " ".join(results_of(model))
+    assert "pam requires the Kubernetes sandbox" in texts
+    assert "ALLOW_LOCAL_SANDBOX=1" in texts
+    assert harness.branches() == ["main"]
+    assert harness.workspace_entries() == []
+    assert result.status is RunStatus.COMPLETE

@@ -149,3 +149,38 @@ def test_span_accepts_metadata_attributes() -> None:
 def test_span_refuses_content_attributes() -> None:
     with pytest.raises(ValueError, match="prompt"), span("invocation", prompt="secret"):
         pass
+
+
+def test_michael_does_not_count_specialist_usage_twice() -> None:
+    agent = "michael"
+    before_tokens = _sample("squad_tokens_total", {"agent": agent, "kind": "input"})
+    before_findings = _sample(
+        "squad_findings_total", {"agent": agent, "severity": "major"}
+    )
+    before_inv = _sample(
+        "squad_invocations_total", {"agent": agent, "status": "complete"}
+    )
+    result = _record(agent).model_copy(update={"data": {"intent": "mr_review"}})
+    record_result(result, 0.1)
+    assert (
+        _sample("squad_tokens_total", {"agent": agent, "kind": "input"})
+        == before_tokens
+    )
+    assert (
+        _sample("squad_findings_total", {"agent": agent, "severity": "major"})
+        == before_findings
+    )
+    assert (
+        _sample("squad_invocations_total", {"agent": agent, "status": "complete"})
+        == before_inv + 1
+    )
+
+
+def test_michael_question_counts_its_own_usage() -> None:
+    agent = "michael"
+    before = _sample("squad_tokens_total", {"agent": agent, "kind": "input"})
+    result = _record(agent).model_copy(update={"data": {"intent": "question"}})
+    record_result(result, 0.1)
+    assert (
+        _sample("squad_tokens_total", {"agent": agent, "kind": "input"}) == before + 100
+    )

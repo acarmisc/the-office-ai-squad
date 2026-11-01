@@ -13,7 +13,6 @@ from typing import Final
 from pydantic import BaseModel
 
 from code_squad._common.config.schema import (
-    Baseline,
     ProjectsFile,
     RepoConfig,
 )
@@ -26,7 +25,6 @@ TARGETS: Final[dict[str, type[BaseModel]]] = {
     "projects.schema.json": ProjectsFile,
     "invocation.schema.json": InvocationRequest,
     "finding.schema.json": Finding,
-    "baseline.schema.json": Baseline,
 }
 
 

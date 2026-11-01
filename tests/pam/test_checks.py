@@ -53,7 +53,7 @@ def test_node_checks_install_locked_then_run_scripts_offline(tmp_path: Path) -> 
             call("start_work", task_key="ENG-1", summary="Add greeting"),
             call("write_file", path="src/greeting.js", content=GREETING),
             call("run_checks"),
-            call("commit", message="add greeting", protected_paths="refuse"),
+            call("commit", message="add greeting"),
             finish_call("checks run", ["Run the checks"]),
         ]
     )
@@ -154,7 +154,7 @@ def test_commit_without_changes_says_so(tmp_path: Path) -> None:
     model = ScriptedModel(
         [
             call("start_work", task_key="ENG-1", summary="x"),
-            call("commit", message="noop", protected_paths="refuse"),
+            call("commit", message="noop"),
             finish_call("nothing", []),
         ]
     )
@@ -167,7 +167,7 @@ def test_commit_before_start_work_is_refused(tmp_path: Path) -> None:
     harness = make_harness(tmp_path, {**BASE_FILES, "Makefile": MAKEFILE})
     model = ScriptedModel(
         [
-            call("commit", message="early", protected_paths="refuse"),
+            call("commit", message="early"),
             finish_call("stopped", []),
         ]
     )

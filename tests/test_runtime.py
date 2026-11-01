@@ -262,3 +262,21 @@ def test_unclassified_tool_is_refused_before_it_runs() -> None:
         for text in tool_result_texts(model.calls[1].messages)
     )
     assert "rogue" not in result.stats.tool_calls
+
+
+def test_caller_reserved_litellm_tags_are_dropped_with_a_warning() -> None:
+    seen: list[list[str]] = []
+    model = ScriptedModel([finish_turn()])
+
+    def _factory(model_id: str, _max: int, _temp: float, tags: Any) -> ScriptedModel:
+        seen.append(list(tags))
+        return model
+
+    result = run_task(
+        make_spec(),
+        request(litellm_tags=["squad:forged", "team:web"]),
+        model_factory=_factory,
+    )
+    assert "squad:forged" not in seen[0]
+    assert "team:web" in seen[0]
+    assert any("reserved" in warning for warning in result.warnings)

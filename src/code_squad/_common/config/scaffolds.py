@@ -23,10 +23,6 @@ review:
     - "**/generated/**"
   # Findings below this confidence are not published.
   min_confidence_to_publish: medium
-
-trigger:
-  # Only start reviews for these comment commands.
-  slash_commands: [review, sec, help]
 """
 
 _REACT: Final[str] = """\

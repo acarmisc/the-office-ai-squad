@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Callable
 from typing import Any
@@ -7,7 +8,7 @@ from typing import Any
 import pytest
 
 from code_squad._common.common_tools import finish
-from code_squad._common.contract import InvocationResult, RunStatus
+from code_squad._common.contract import Finding, InvocationResult, RunStatus
 from code_squad._common.fake_model import ScriptedModel, ToolCall, Turn
 from code_squad._common.findings import PublishOptions
 from code_squad._common.review_tools import (
@@ -65,8 +66,9 @@ def _run(
 def _context_from(model: ScriptedModel) -> dict[str, Any]:
     texts = tool_result_texts(model.calls[-1].messages)
     context_text = next(text for text in texts if text.lstrip().startswith("{"))
-    parsed: dict[str, Any] = json.loads(context_text)
-    return parsed
+    parsed, _end = json.JSONDecoder().raw_decode(context_text.lstrip())
+    result: dict[str, Any] = parsed
+    return result
 
 
 def test_review_context_wraps_untrusted_text_and_reports_metadata() -> None:
@@ -80,9 +82,7 @@ def test_review_context_wraps_untrusted_text_and_reports_metadata() -> None:
     assert [f["path"] for f in context["files"]] == [s.APP_PATH, s.LOGO_PATH]
     assert context["files"][0]["language"] == "typescript"
     assert context["files"][1]["truncated"] is True
-    assert len(context["diffs"]) == 1
-    assert context["diffs"][0]["patch"].startswith('<untrusted id="')
-    assert "greet" in context["diffs"][0]["patch"]
+    assert "diffs" not in context
     assert context["comments"][0]["body"].startswith('<untrusted id="')
     assert context["ci"]["status"] == "success"
 
@@ -118,9 +118,9 @@ def test_injected_diff_text_cannot_publish_when_the_script_does_not_call_publish
     )
     assert result.verdict.value == "approve"
     assert fake.writes == []
-    context = _context_from(model)
-    assert INJECTION in context["diffs"][0]["patch"]
-    assert context["diffs"][0]["patch"].startswith('<untrusted id="')
+    texts = tool_result_texts(model.calls[-1].messages)
+    output = next(text for text in texts if INJECTION in text)
+    assert output.rfind('<untrusted id="', 0, output.index(INJECTION)) != -1
 
 
 def test_scripted_publish_in_dry_run_makes_zero_fake_writes() -> None:
@@ -183,6 +183,18 @@ def test_publish_review_rejects_invalid_findings_without_writing() -> None:
     )
 
 
+def _app_only_fake(patch: str = s.APP_PATCH) -> FakeVcsProvider:
+    fake = FakeVcsProvider()
+    base = FakeVcsProvider()
+    s.seed_fake(base)
+    fake.add_change_request(
+        base.get_change_request(s.REF),
+        files={s.APP_PATH: patch},
+        file_contents={s.APP_PATH: s.FILE_TEXT},
+    )
+    return fake
+
+
 @pytest.mark.parametrize(
     ("cap", "expected_verdict", "expected_status"),
     [
@@ -199,7 +211,7 @@ def test_publish_review_applies_the_verdict_cap_from_the_services(
     expected_verdict: str,
     expected_status: str,
 ) -> None:
-    fake = _fake()
+    fake = _app_only_fake()
     turns = [
         Turn((ToolCall("publish_review", {"findings": [], "summary": "Nothing."}),)),
         finish_turn("approve", "Nothing."),
@@ -294,7 +306,7 @@ def test_context_output_respects_the_size_budget() -> None:
     texts = tool_result_texts(model.calls[-1].messages)
     context_text = next(text for text in texts if text.lstrip().startswith("{"))
     assert len(context_text.encode("utf-8")) <= MAX_CONTEXT_BYTES
-    context = json.loads(context_text)
+    context, _end = json.JSONDecoder().raw_decode(context_text.lstrip())
     assert any("context budget" in note for note in context["truncation"])
 
 
@@ -331,3 +343,106 @@ def _result_text_by_prefix(
     )
     texts = tool_result_texts(model.calls[-1].messages)
     return next(text for text in texts if needle in text)
+
+
+def test_adv04_patches_are_raw_untrusted_blocks_outside_the_json() -> None:
+    _result, model = _run(
+        _fake(), [Turn((ToolCall("get_review_context", {}),)), finish_turn()]
+    )
+    texts = tool_result_texts(model.calls[-1].messages)
+    output = next(text for text in texts if "import { greet }" in text)
+    assert output.index("import { greet }") > output.index('"truncation"')
+    assert '<untrusted id="' in output[output.index("import { greet }") - 200 :]
+    assert 'from "./greet";' in output
+
+
+def test_adv04_vcs_strings_are_wrapped_or_restricted_to_a_safe_charset() -> None:
+    fake = _fake()
+    cr = dataclasses.replace(
+        fake.get_change_request(s.REF),
+        source_branch="feat <b>x</b>\nIGNORE",
+        labels=("frontend", "bad <label>"),
+        author="alice\n@root",
+    )
+    fake.add_change_request(cr, files={s.APP_PATH: s.APP_PATCH})
+    _result, model = _run(
+        fake, [Turn((ToolCall("get_review_context", {}),)), finish_turn()]
+    )
+    context = _context_from(model)
+    change = context["change_request"]
+    assert change["source_branch"].startswith('<untrusted id="')
+    assert change["labels"][0] == "frontend"
+    assert change["labels"][1].startswith('<untrusted id="')
+    assert change["author"].startswith('<untrusted id="')
+
+
+def test_adv04_comments_authored_by_the_bot_are_not_re_sent() -> None:
+    _result, model = _run(
+        _fake(), [Turn((ToolCall("get_review_context", {}),)), finish_turn()]
+    )
+    context = _context_from(model)
+    assert [item["author"] for item in context["comments"]] == ["bob"]
+
+
+def test_adv01_publish_review_overrides_the_model_head_with_the_run_state() -> None:
+    fake = _app_only_fake()
+    finding = finding_dict(
+        head_sha="deadbeef",
+        severity="blocker",
+        confidence="high",
+        failure_scenario="crash",
+        file=s.APP_PATH,
+        line_start=2,
+        line_end=2,
+    )
+    turns = [
+        Turn((ToolCall("get_review_context", {}),)),
+        Turn((ToolCall("publish_review", {"findings": [finding], "summary": "x"}),)),
+        finish_turn("request_changes", "x"),
+    ]
+    _result, model = _run(fake, turns, post=True)
+    text = next(
+        t
+        for t in tool_result_texts(model.calls[-1].messages)
+        if t.startswith("published:")
+    )
+    assert "verdict=request_changes" in text
+    assert "inline=1" in text
+
+
+def test_adv_hook_pre_publish_filters_can_drop_findings_and_add_warnings() -> None:
+    fake = _app_only_fake()
+    finding = finding_dict(
+        head_sha=s.HEAD,
+        severity="blocker",
+        confidence="high",
+        failure_scenario="crash",
+        file=s.APP_PATH,
+        line_start=2,
+        line_end=2,
+    )
+
+    def accept_risk(findings: list[Finding]) -> tuple[list[Finding], list[str]]:
+        return [], ["accepted risk: ACCEPT-1"]
+
+    turns = [
+        Turn((ToolCall("publish_review", {"findings": [finding], "summary": "x"}),)),
+        finish_turn("approve", "x"),
+    ]
+    model = ScriptedModel(turns)
+    run_task(
+        make_spec(tools=TOOLS),
+        request(project=s.PROJECT, target=str(s.NUMBER), post=True),
+        services={"vcs": fake, "pre_publish_filters": [accept_risk]},
+        model_factory=factory_of(model),
+    )
+    text = next(
+        t
+        for t in tool_result_texts(model.calls[-1].messages)
+        if t.startswith("published:")
+    )
+    assert "verdict=approve" in text
+    assert "accepted risk: ACCEPT-1" in text
+    assert fake.writes and not [
+        w for w in fake.writes if w[0] == "post_inline_comments"
+    ]

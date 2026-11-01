@@ -123,3 +123,44 @@ def test_all_problems_are_reported_together(michael: AgentSpec) -> None:
 def test_missing_prompt_is_rejected(michael: AgentSpec) -> None:
     errors = _errors({"project": "group/repo"}, michael)
     assert any(error.startswith("prompt") for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("vcs_provider", "gitlab"),
+        ("vcs_base_url", "https://gitlab.example.com"),
+        ("vcs_token_secret", "gitlab-token"),
+        ("llm_api_key_secret", "litellm-key"),
+        ("skills_ref", "head"),
+        ("config_ref", "head"),
+    ],
+)
+def test_org_only_project_config_fields_are_rejected(
+    michael: AgentSpec, field: str, value: str
+) -> None:
+    errors = _errors({"prompt": "x", "project_config": {field: value}}, michael)
+    assert any(f"project_config.{field}" in error for error in errors)
+
+
+def test_base_refs_and_plain_project_config_are_accepted(michael: AgentSpec) -> None:
+    raw = {
+        "prompt": "x",
+        "project_config": {"skills_ref": "base", "skills_repo_path": "skills"},
+    }
+    assert validate_invocation(raw, michael).project_config is not None
+
+
+def test_model_allow_list_is_enforced_only_when_configured() -> None:
+    from code_squad._common.validation import model_allowlist_errors
+
+    request = InvocationRequest(prompt="x", model="rogue")
+    assert model_allowlist_errors(request, []) == []
+    assert model_allowlist_errors(request, ["sonnet-5-5"]) != []
+    assert (
+        model_allowlist_errors(
+            InvocationRequest(prompt="x", model="sonnet-5-5"), ["sonnet-5-5"]
+        )
+        == []
+    )
+    assert model_allowlist_errors(InvocationRequest(prompt="x"), ["sonnet-5-5"]) == []

@@ -29,7 +29,7 @@ from code_squad._common.contract import (
     Stats,
     Verdict,
 )
-from code_squad._common.findings import PublishOptions
+from code_squad._common.findings import PublishOptions, summary_notes_of
 from code_squad._common.model import ModelFactory, get_model_factory
 from code_squad._common.posting import DryRunError, PostingGate
 from code_squad._common.runtime import run_task
@@ -119,7 +119,7 @@ class Orchestrator:
         run = _Run(
             request=request,
             services=services,
-            gate=_gate(request, post_override),
+            gate=_gate(request, post_override, services),
             intent=classify_intent(request, classifier),
             factory=factory,
             post_override=post_override,
@@ -168,7 +168,10 @@ class Orchestrator:
         agents = [name for name in plan.agents if only is None or name in only]
         if not agents:
             return _unavailable(run, "no reviewer was selected for this change")
-        outcomes = self._fan_out_review(agents, run.request, ref, head, risk, config)
+        post = routing_post(config, run)
+        outcomes = self._fan_out_review(
+            agents, run.request, ref, head, risk, config, post
+        )
         options = _publish_options(run.services)
         report = aggregate(
             outcomes,
@@ -199,6 +202,7 @@ class Orchestrator:
             summary,
             gate=run.gate,
             options=options,
+            config_notes=summary_notes_of(run.services),
         )
         data: dict[str, Any] = {
             "intent": "mr_review",
@@ -211,8 +215,8 @@ class Orchestrator:
         }
         return _result(
             run,
-            status=_status(report.verdict),
-            verdict=report.verdict,
+            status=_status(publication.verdict),
+            verdict=publication.verdict,
             summary=summary,
             findings=list(report.findings),
             outcomes=outcomes,
@@ -256,6 +260,7 @@ class Orchestrator:
         head: str,
         risk: RiskAssessment,
         config: SquadConfig,
+        post: bool,
     ) -> dict[str, SpecialistOutcome]:
         routing = config.routing
         base = request.idempotency_key or head
@@ -264,7 +269,7 @@ class Orchestrator:
             hint = (
                 _HIGH_TIER_HINT if risk.tier == "high" and agent == "dwight" else None
             )
-            return _review_payload(request, ref, head, routing.specialists_post, hint)
+            return _review_payload(request, ref, head, post, hint)
 
         return fan_out(
             agents,
@@ -443,13 +448,17 @@ def _result(
     warnings: list[str],
     data: dict[str, Any],
 ) -> InvocationResult:
-    results = [item.result for item in outcomes.values() if item.result is not None]
-    stats = Stats(
-        iterations=sum(item.stats.iterations for item in results),
-        input_tokens=sum(item.stats.input_tokens for item in results),
-        output_tokens=sum(item.stats.output_tokens for item in results),
-        config_hash=_config_hash(run.services),
-    )
+    # Specialists record their own usage and findings; michael's metrics stay its own.
+    stats = Stats(config_hash=_config_hash(run.services))
+    usage = {
+        agent: {
+            "iterations": item.result.stats.iterations,
+            "input_tokens": item.result.stats.input_tokens,
+            "output_tokens": item.result.stats.output_tokens,
+        }
+        for agent, item in outcomes.items()
+        if item.result is not None
+    }
     return InvocationResult(
         agent=MICHAEL_SPEC.name,
         status=status,
@@ -459,16 +468,25 @@ def _result(
         stats=stats,
         posted=posted,
         warnings=_warnings(run, warnings),
-        data=data,
+        data={**data, "specialist_usage": usage},
     )
+
+
+def routing_post(config: SquadConfig, run: _Run) -> bool:
+    """Specialists post only when routing allows it and this run's gate is open."""
+    return config.routing.specialists_post and run.gate.post_allowed
 
 
 def _status(verdict: Verdict) -> RunStatus:
     return RunStatus.INCOMPLETE if verdict is Verdict.INCOMPLETE else RunStatus.COMPLETE
 
 
-def _gate(request: InvocationRequest, post_override: bool | None) -> PostingGate:
-    if post_override is False:
+def _gate(
+    request: InvocationRequest,
+    post_override: bool | None,
+    services: dict[str, Any],
+) -> PostingGate:
+    if post_override is False or services.get("posting_allowed") is False:
         return PostingGate(post_allowed=False)
     return PostingGate.from_request(request)
 

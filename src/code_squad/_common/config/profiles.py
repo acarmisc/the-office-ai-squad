@@ -10,7 +10,7 @@ BUILTIN_PROFILES: Final[dict[str, dict[str, Any]]] = {
         "review": {
             "min_confidence_to_publish": "low",
             "min_severity_inline": "nit",
-            "verdict": {"major_threshold": 1, "request_changes_on_blocker": True},
+            "verdict": {"major_threshold": 1},
         },
         "security": {
             "severity_mapping": {

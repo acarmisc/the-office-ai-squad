@@ -53,6 +53,20 @@ def _count(value: str | None) -> int:
     return 1 if value is None else int(value)
 
 
+_MAX_RANGE_LINES: Final = 1000
+
+
+def added_range(file_diff: FileDiff, start: int, end: int) -> bool:
+    """True when every line of ``start..end`` is an added line of the new file."""
+    lo, hi = min(start, end), max(start, end)
+    if hi - lo >= _MAX_RANGE_LINES:
+        return False
+    added: set[int] = set()
+    for hunk in file_diff.hunks:
+        added |= hunk.added_lines
+    return all(line in added for line in range(lo, hi + 1))
+
+
 def line_in_changed_hunk(file_diff: FileDiff, start: int, end: int) -> bool:
     lo, hi = min(start, end), max(start, end)
     return any(

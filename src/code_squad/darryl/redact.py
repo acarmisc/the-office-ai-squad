@@ -2,7 +2,12 @@
 
 Every tool output passes through ``redact`` and then ``wrap_untrusted``. Rules run in
 a fixed order: PEM blocks, authorization headers, connection strings, JWTs, token
-prefixes, key-value secrets, configured extra patterns, then optional e-mail addresses.
+prefixes (including Stripe and Slack webhook URLs), signed URL signatures, JSON
+name/value secrets, JSON private keys, environment-style secret pairs, key-value
+secrets, configured extra patterns, then optional e-mail addresses.
+
+Environment-style names are matched case-sensitively (``DB_PASS=`` and ``API_KEY:``), so
+lower-case config keys such as ``max_tokens`` keep their values.
 """
 
 from __future__ import annotations
@@ -51,6 +56,18 @@ def _mask_connection(match: re.Match[str]) -> str:
     return f"{match.group('scheme')}{match.group('user')}:***@"
 
 
+def _mask_env_pair(match: re.Match[str]) -> str:
+    value = match.group("value")
+    quote = value[0] if value[:1] in ('"', "'") else ""
+    return f"{match.group('key')}{match.group('sep')}{quote}<redacted>{quote}"
+
+
+def _mask_json_name_value(match: re.Match[str]) -> str:
+    if _SECRET_NAME.search(match.group("name")) is None:
+        return match.group(0)
+    return f'{match.group("pre")}"<redacted>"'
+
+
 _PEM_BLOCK: Final = re.compile(
     r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?"
     r"(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)",
@@ -74,6 +91,30 @@ _KEY_VALUE: Final = re.compile(
     re.IGNORECASE,
 )
 _EMAIL: Final = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
+_SECRET_NAME: Final = re.compile(
+    r"[A-Z0-9_]*(?:PASS|PASSWD|PASSWORD|PWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY"
+    r"|CREDENTIALS?)[A-Z0-9_]*",
+    re.IGNORECASE,
+)
+_ENV_SECRET_PAIR: Final = re.compile(
+    r"(?<![A-Za-z0-9_])(?P<key>[A-Z][A-Z0-9_]*(?:PASS|PASSWD|PASSWORD|PWD|SECRET|TOKEN"
+    r"|API_?KEY|PRIVATE_?KEY|CREDENTIALS?)[A-Z0-9_]*)"
+    r"(?P<sep>[ \t]*[:=][ \t]*)"
+    r"(?P<value>\"[^\"\n]*\"|'[^'\n]*'|[^\s\"',;&}\]]+)"
+)
+_JSON_NAME_VALUE: Final = re.compile(
+    r'(?P<pre>\{\s*"name"\s*:\s*"(?P<name>[^"\n]{1,200})"\s*,\s*"value"\s*:\s*)'
+    r'"(?:[^"\\\n]|\\.)*"',
+    re.IGNORECASE,
+)
+_JSON_PRIVATE_KEY: Final = re.compile(
+    r'("private_key"\s*:\s*)"(?:[^"\\]|\\.)*"', re.IGNORECASE
+)
+_STRIPE_KEY: Final = re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}\b")
+_SLACK_WEBHOOK: Final = re.compile(
+    r"https://hooks\.slack\.com/services/[A-Za-z0-9_/\-]+"
+)
+_SAS_SIGNATURE: Final = re.compile(r"(?i)\bsig=[^&\s\"',;]+")
 
 _BUILTIN_RULES: Final[tuple[_Rule, ...]] = (
     (_PEM_BLOCK, _fixed("<redacted:private-key>")),
@@ -81,6 +122,9 @@ _BUILTIN_RULES: Final[tuple[_Rule, ...]] = (
     (_BEARER, _fixed("Bearer <redacted>")),
     (_CONNECTION, _mask_connection),
     (_JWT, _fixed("<redacted:jwt>")),
+    (_STRIPE_KEY, _fixed("<redacted:stripe-key>")),
+    (_SLACK_WEBHOOK, _fixed("<redacted:slack-webhook>")),
+    (_SAS_SIGNATURE, _fixed("sig=<redacted>")),
     (
         re.compile(
             r"\b(?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255})\b"
@@ -97,6 +141,9 @@ _BUILTIN_RULES: Final[tuple[_Rule, ...]] = (
         re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
         _fixed("<redacted:aws-access-key-id>"),
     ),
+    (_JSON_NAME_VALUE, _mask_json_name_value),
+    (_JSON_PRIVATE_KEY, _keep_group(1, '"<redacted>"')),
+    (_ENV_SECRET_PAIR, _mask_env_pair),
     (_KEY_VALUE, _mask_key_value),
 )
 

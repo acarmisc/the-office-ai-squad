@@ -12,7 +12,6 @@ from pydantic import BaseModel, ValidationError
 
 from code_squad._common.config.errors import ConfigError, problems_of
 from code_squad._common.config.schema import (
-    Baseline,
     ProjectEntry,
     ProjectsFile,
     RepoConfig,
@@ -25,7 +24,6 @@ from code_squad._common.contract import Finding, InvocationRequest
 SCHEMA_KINDS: Final[dict[str, type[BaseModel]]] = {
     "config": RepoConfig,
     "projects": ProjectsFile,
-    "baseline": Baseline,
     "invocation": InvocationRequest,
     "finding": Finding,
 }
@@ -48,8 +46,6 @@ class ValidationReport:
 
 
 def detect_kind(path: Path, raw: Any) -> str:
-    if path.stem == "baseline":
-        return "baseline"
     if isinstance(raw, dict):
         if "projects" in raw or "profiles" in raw:
             return "projects"
@@ -71,8 +67,6 @@ def _validate_document(kind: str, raw: Any) -> None:
         ProjectEntry.model_validate(raw)
     elif kind == "profile":
         SquadFields.model_validate(raw)
-    elif kind == "baseline":
-        Baseline.model_validate(raw or {})
     else:
         RepoConfig.model_validate(raw or {})
 

@@ -23,7 +23,6 @@ review:
   min_severity_inline: minor
 
 trigger:
-  slash_commands: [review, sec, help]
   skip_labels: [skip-squad, no-ai-review]
 
 agents:

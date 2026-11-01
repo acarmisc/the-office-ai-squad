@@ -28,8 +28,13 @@ the process at start-up or per request, as described in the deployment pages.
 | `AGENT_MAX_ITERATIONS` | no | - | Override the agent's turn limit. |
 | `AGENT_TEMPERATURE` | no | - | Override the agent's temperature (0 to 2). |
 | `AGENT_PROMPT_FILE` | no | - | Override the agent's prompt file. |
-| `SQUAD_API_TOKEN` | no | - | Shared bearer token for POST /invocations and GET /jobs/{id}. Unset means no token check. Prefer the file. |
+| `SQUAD_API_TOKEN` | no | - | Shared bearer token for POST /invocations and GET /jobs/{id}. Required unless SQUAD_ALLOW_UNAUTHENTICATED=1; without either, both endpoints refuse every request. Prefer the file. |
 | `SQUAD_API_TOKEN_FILE` | no | - | File holding the shared bearer token. Read once at start-up. |
+| `SQUAD_ALLOW_UNAUTHENTICATED` | no | - | Set to 1 to keep /invocations and /jobs open when no API token is configured. Local demos and tests only; the chart sets it only when api.allowUnauthenticated is true. |
+| `SQUAD_MAX_REQUEST_BYTES` | no | `1000000` | Largest accepted /invocations request body. Larger bodies get 413 before parsing. |
+| `SQUAD_MAX_WEBHOOK_BYTES` | no | `1048576` | Largest accepted webhook body. Applied before signature verification. |
+| `SQUAD_DOCS_URL` | no | - | Documentation link appended to the /squad help reply on the VCS. |
+| `ALLOW_LOCAL_SANDBOX` | no | - | Set to 1 to let pam run without the Kubernetes sandbox (SANDBOX_NAMESPACE unset). Development only; pam refuses to start otherwise. |
 | `LOG_LEVEL` | no | `INFO` | Log level of the process. |
 | `WEBHOOK_PROVIDERS` | no | - | Comma-separated providers whose webhook route michael registers: gitlab, github. Unset means no /webhooks route exists. |
 | `WEBHOOK_SECRETS_DIR` | no | - | Directory holding gitlab-webhook-secret and github-webhook-secret. Unset means the secret provider is used. |

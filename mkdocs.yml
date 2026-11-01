@@ -62,6 +62,7 @@ nav:
       - Local validation record: deployment/local-validation.md
   - Operations:
       - Runbook: operations/runbook.md
+      - First operational test: operations/first-operational-test.md
   - Security:
       - Threat model: security/threat-model.md
       - Prompt injection: security/prompt-injection.md
@@ -82,5 +83,6 @@ nav:
       - 0010 Single publication path: decisions/0010-orchestrator-single-publication-path.md
       - 0011 VCS abstraction: decisions/0011-vcs-abstraction.md
       - 0012 Agent naming: decisions/0012-agent-naming.md
+      - 0013 Operational readiness: decisions/0013-operational-readiness.md
   - Handoff: HANDOFF.md
   - Build brief: BRIEF.md

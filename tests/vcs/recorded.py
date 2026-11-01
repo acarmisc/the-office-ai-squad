@@ -54,6 +54,26 @@ def _text(provider: str, name: str) -> Handler:
     return handle
 
 
+ADDED_LINE: Final = 2
+
+
+def _gitlab_discussion(request: httpx.Request) -> httpx.Response:
+    position = json.loads(request.content).get("position", {})
+    if "new_line" in position and position["new_line"] != ADDED_LINE:
+        return json_response({"message": "line_code can't be blank"}, 400)
+    return json_response(load_json("gitlab", "discussion_created.json"), 201)
+
+
+def _github_review(request: httpx.Request) -> httpx.Response:
+    for comment in json.loads(request.content).get("comments", []):
+        if comment.get("side", "RIGHT") != "RIGHT":
+            continue
+        lines = {comment.get("line"), comment.get("start_line", comment.get("line"))}
+        if lines != {ADDED_LINE}:
+            return json_response({"message": "Unprocessable Entity"}, 422)
+    return json_response(load_json("github", "review_created.json"), 200)
+
+
 def _not_found(_request: httpx.Request) -> httpx.Response:
     return json_response({"message": "404 Not found"}, 404)
 
@@ -125,9 +145,7 @@ def gitlab_recorder() -> Recorder:
     rec.add("GET", rf"{mr}/notes", _fixed("gitlab", "notes.json"))
     rec.add("PUT", rf"{mr}/notes/900", _fixed("gitlab", "note_updated.json"))
     rec.add("POST", rf"{mr}/notes", _fixed("gitlab", "note_created.json", 201))
-    rec.add(
-        "POST", rf"{mr}/discussions", _fixed("gitlab", "discussion_created.json", 201)
-    )
+    rec.add("POST", rf"{mr}/discussions", _gitlab_discussion)
     rec.add(
         "PUT", rf"{mr}/discussions/d1", _fixed("gitlab", "discussion_resolved.json")
     )
@@ -200,11 +218,7 @@ def github_recorder() -> Recorder:
         rf"{repo}/issues/comments/900",
         _fixed("github", "issue_comment_updated.json"),
     )
-    rec.add(
-        "POST",
-        rf"{repo}/pulls/42/reviews",
-        _fixed("github", "review_created.json", 200),
-    )
+    rec.add("POST", rf"{repo}/pulls/42/reviews", _github_review)
     rec.add("POST", rf"{repo}/statuses/{s.HEAD}", _fixed("github", "status.json", 201))
     rec.add("POST", rf"{repo}/check-runs", _fixed("github", "check_run.json", 201))
     rec.add("GET", rf"{repo}/actions/runs", _fixed("github", "runs.json"))

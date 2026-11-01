@@ -3,10 +3,15 @@
 ``AGENT_NAME`` selects the agent (default ``michael``). ``Prefer: respond-async``
 returns 202 with a ``job_id`` that ``GET /jobs/{id}`` polls. Jobs live in
 ``session.JobStore``; see that module for the single-replica caveat.
+
+``/invocations`` and ``/jobs`` need ``SQUAD_API_TOKEN[_FILE]`` unless
+``SQUAD_ALLOW_UNAUTHENTICATED=1``. An ``Idempotency-Key`` (header or body field) makes a
+repeated request return the stored result, or 409 while the first run is in flight.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -22,7 +27,12 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.concurrency import run_in_threadpool
 
 from code_squad import __version__
-from code_squad._common.auth import API_TOKEN_ENV, bearer_matches, load_api_token
+from code_squad._common.auth import (
+    API_TOKEN_ENV,
+    bearer_matches,
+    load_api_token,
+    unauthenticated_allowed,
+)
 from code_squad._common.config.errors import ConfigError
 from code_squad._common.config.loader import ConfigSources, load_org
 from code_squad._common.config.schema import SquadConfig
@@ -49,13 +59,18 @@ from code_squad._common.services import (
     sources_from_env,
 )
 from code_squad._common.session import (
+    InFlightRegistry,
     JobStore,
     MemorySessionStore,
     RedisSessionStore,
     SessionStore,
 )
 from code_squad._common.spec import AgentSpec
-from code_squad._common.validation import ValidationFailure, validate_invocation
+from code_squad._common.validation import (
+    ValidationFailure,
+    model_allowlist_errors,
+    validate_invocation,
+)
 from code_squad.michael.fanout import (
     CircuitBreakers,
     HttpSpecialistClient,
@@ -72,6 +87,9 @@ from code_squad.michael.orchestrator import Invoker, make_invoker
 logger = logging.getLogger(__name__)
 
 _DEFAULT_AGENT: Final = "michael"
+_MAX_REQUEST_ENV: Final = "SQUAD_MAX_REQUEST_BYTES"
+_DEFAULT_MAX_REQUEST_BYTES: Final = 1_000_000
+_MAX_KEY_LENGTH: Final = 128
 ServicesFactory = Callable[[InvocationRequest, str], dict[str, Any]]
 
 
@@ -101,14 +119,20 @@ def create_app(
     sources = sources if sources is not None else sources_from_env(env)
     loaded = _load(name, sources)
     api_token = load_api_token(env)
+    open_access = api_token is None and unauthenticated_allowed(env)
     if api_token is None:
         logger.warning(
-            "%s is not set: /invocations and /jobs are not authenticated",
+            "%s is not set: /invocations and /jobs %s",
             API_TOKEN_ENV,
+            "are open (SQUAD_ALLOW_UNAUTHENTICATED=1)"
+            if open_access
+            else "refuse every request; set the token or SQUAD_ALLOW_UNAUTHENTICATED=1",
         )
     base_services: ServicesFactory = services_factory or ServiceBuilder().build
     build_services = _with_extra_knowledge(base_services)
-    jobs = JobStore(session_store or _default_store())
+    store = session_store if session_store is not None else _default_store()
+    jobs = JobStore(store)
+    registry = InFlightRegistry(store)
     client = _specialist_client(wiring, env) if name == _DEFAULT_AGENT else None
     invoker: Invoker = make_invoker(client) if client is not None else _run_agent
     app = FastAPI(title="Code Squad", version=__version__)
@@ -135,22 +159,49 @@ def create_app(
         request: Request,
         background: BackgroundTasks,
         prefer: Annotated[str | None, Header()] = None,
-    ) -> JSONResponse:
-        if not _authorized(request, api_token):
+        idempotency_key: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        if not _authorized(request, api_token, open_access):
             return _unauthorized()
         if loaded.spec is None:
             return JSONResponse(
                 status_code=503, content={"detail": "agent is not loaded"}
             )
-        raw = await _json_body(request)
+        raw = await _json_body(request, _max_request_bytes(env, sources))
         try:
             req = validate_invocation(raw, loaded.spec)
+            scoped = _claim_key(loaded.spec.name, req.idempotency_key, idempotency_key)
         except ValidationFailure as exc:
             return JSONResponse(status_code=422, content={"detail": exc.errors})
-        services = await run_in_threadpool(build_services, req, loaded.spec.name)
-        plan = plan_run(loaded.spec, services)
+        if scoped is None:
+            return await _dispatch(loaded.spec, req, prefer, background, None, registry)
+        if not registry.try_acquire(scoped):
+            return _replay(registry, scoped)
+        try:
+            response = await _dispatch(
+                loaded.spec, req, prefer, background, scoped, registry
+            )
+        except BaseException:
+            registry.release(scoped)
+            raise
+        _settle(registry, scoped, response)
+        return response
+
+    async def _dispatch(
+        spec: AgentSpec,
+        req: InvocationRequest,
+        prefer: str | None,
+        background: BackgroundTasks,
+        scoped: str | None,
+        registry: InFlightRegistry,
+    ) -> Response:
+        services = await run_in_threadpool(build_services, req, spec.name)
+        errors = model_allowlist_errors(req, _allowed_models(services))
+        if errors:
+            return JSONResponse(status_code=422, content={"detail": errors})
+        plan = plan_run(spec, services)
         if plan.disabled:
-            refused = disabled_result(loaded.spec, services)
+            refused = disabled_result(spec, services)
             _finish(refused, uuid.uuid4().hex, 0.0)
             return JSONResponse(content=refused.model_dump(mode="json"))
         factory = model_factory or get_model_factory()
@@ -167,6 +218,8 @@ def create_app(
                 factory,
                 plan.post_override,
                 invoker,
+                registry=registry,
+                scoped_key=scoped,
             )
             return JSONResponse(
                 status_code=202, content={"job_id": job_id}, background=background
@@ -178,7 +231,7 @@ def create_app(
 
     @app.get("/jobs/{job_id}")
     def get_job(job_id: str, request: Request) -> JSONResponse:
-        if not _authorized(request, api_token):
+        if not _authorized(request, api_token, open_access):
             return _unauthorized()
         entry = jobs.get(job_id)
         if entry is None:
@@ -196,6 +249,7 @@ def create_app(
                 services_factory=build_services,
                 model_factory=model_factory,
                 secrets=wiring.secret_provider if wiring is not None else None,
+                inflight=registry,
             )
             register_webhook_routes(app, gateway, providers)
 
@@ -233,9 +287,9 @@ def _with_extra_knowledge(base: ServicesFactory) -> ServicesFactory:
     return build
 
 
-def _authorized(request: Request, api_token: str | None) -> bool:
+def _authorized(request: Request, api_token: str | None, open_access: bool) -> bool:
     if api_token is None:
-        return True
+        return open_access
     return bearer_matches(request.headers.get("authorization"), api_token)
 
 
@@ -279,13 +333,79 @@ def _default_store() -> SessionStore:
     return MemorySessionStore()
 
 
-async def _json_body(request: Request) -> Any:
+def _max_request_bytes(env: Mapping[str, str], sources: ConfigSources) -> int:
+    raw = env.get(_MAX_REQUEST_ENV, "").strip()
+    if raw:
+        if raw.isdigit() and int(raw) > 0:
+            return int(raw)
+        logger.warning("%s must be a positive integer; default used", _MAX_REQUEST_ENV)
+        return _DEFAULT_MAX_REQUEST_BYTES
     try:
-        return await request.json()
+        config = SquadConfig.model_validate(load_org(sources))
+    except (ConfigError, ValueError):
+        return _DEFAULT_MAX_REQUEST_BYTES
+    limit: Any = getattr(getattr(config, "limits", None), "max_request_bytes", None)
+    if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
+        return limit
+    return _DEFAULT_MAX_REQUEST_BYTES
+
+
+async def _json_body(request: Request, limit: int) -> Any:
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise HTTPException(status_code=413, detail="request body is too large")
+    received = bytearray()
+    async for chunk in request.stream():
+        received.extend(chunk)
+        if len(received) > limit:
+            raise HTTPException(status_code=413, detail="request body is too large")
+    try:
+        return json.loads(bytes(received))
     except ValueError as exc:
         raise HTTPException(
             status_code=400, detail="request body must be valid JSON"
         ) from exc
+
+
+def _claim_key(agent: str, body_key: str | None, header_key: str | None) -> str | None:
+    errors: list[str] = []
+    if header_key is not None and len(header_key) > _MAX_KEY_LENGTH:
+        errors.append(f"Idempotency-Key must be at most {_MAX_KEY_LENGTH} characters")
+    if body_key is not None and header_key is not None and body_key != header_key:
+        errors.append(
+            "idempotency key in the body and the Idempotency-Key header differ"
+        )
+    if errors:
+        raise ValidationFailure(errors)
+    key = body_key or header_key
+    return f"{agent}:{key}" if key else None
+
+
+def _replay(registry: InFlightRegistry, scoped: str) -> JSONResponse:
+    entry = registry.state(scoped)
+    if entry is not None and entry.get("state") == "done":
+        stored: dict[str, Any] = entry.get("result") or {}
+        return JSONResponse(
+            status_code=int(stored.get("status_code", 200)),
+            content=stored.get("body"),
+        )
+    return JSONResponse(status_code=409, content={"status": "in_flight"})
+
+
+def _settle(registry: InFlightRegistry, scoped: str, response: Response) -> None:
+    if response.status_code == 202:
+        return  # the background job completes or releases the key
+    if response.status_code == 200:
+        body: Any = json.loads(bytes(response.body))
+        registry.complete(scoped, {"status_code": 200, "body": body})
+        return
+    registry.release(scoped)
+
+
+def _allowed_models(services: Mapping[str, Any]) -> list[str]:
+    config: Any = getattr(services.get("config"), "config", None)
+    allowed: Any = getattr(getattr(config, "llm", None), "allowed_models", None)
+    return [str(item) for item in allowed] if isinstance(allowed, list) else []
 
 
 def _wants_async(prefer: str | None) -> bool:
@@ -319,17 +439,32 @@ def _run_job(
     factory: ModelFactory,
     post_override: bool | None,
     invoker: Invoker,
+    *,
+    registry: InFlightRegistry | None = None,
+    scoped_key: str | None = None,
 ) -> None:
     jobs.update(job_id, "running")
     started = time.perf_counter()
     try:
         result = invoker(spec, req, services, factory, post_override)
-    except Exception:
-        logger.error("job failed", extra={"agent": spec.name, "invocation_id": job_id})
+    except Exception as exc:
+        logger.exception(
+            "job failed",
+            extra={
+                "agent": spec.name,
+                "invocation_id": job_id,
+                "error_type": type(exc).__name__,
+            },
+        )
         jobs.update(job_id, "failed")
+        if registry is not None and scoped_key is not None:
+            registry.release(scoped_key)
         return
     _finish(result, job_id, time.perf_counter() - started)
-    jobs.update(job_id, "done", result.model_dump(mode="json"))
+    body = result.model_dump(mode="json")
+    jobs.update(job_id, "done", body)
+    if registry is not None and scoped_key is not None:
+        registry.complete(scoped_key, {"status_code": 200, "body": body})
 
 
 def _finish(result: InvocationResult, invocation_id: str, duration: float) -> None:

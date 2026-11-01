@@ -8,23 +8,21 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from code_squad._common.config import schema as schema_module
 from code_squad._common.config.meta import merge_policy
 from code_squad._common.config.schema import (
-    FLOOR_RULES,
     AcceptedRisk,
     AgentConfig,
-    Baseline,
-    BaselineEntry,
     Budgets,
     ProjectsFile,
     RepoConfig,
+    ReviewConfig,
     SecretsConfig,
     SquadConfig,
     SquadFields,
     VcsAuth,
     VcsConfig,
 )
-from code_squad._common.contract import Severity
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -64,9 +62,6 @@ MANDATORY_FIELDS = {
     "AcceptedRisk.id",
     "AcceptedRisk.reason",
     "AcceptedRisk.expires",
-    "BaselineEntry.file",
-    "BaselineEntry.reason",
-    "BaselineEntry.expires",
     "ProjectEntry.match",
 }
 
@@ -77,7 +72,7 @@ def test_every_field_has_a_description_and_all_but_the_mandatory_have_defaults()
     problems: list[str] = []
     required: set[str] = set()
     seen: set[type[BaseModel]] = set()
-    roots: list[type[BaseModel]] = [RepoConfig, ProjectsFile, Baseline]
+    roots: list[type[BaseModel]] = [RepoConfig, ProjectsFile]
     models = [model for root in roots for model in _walk_models(root, seen)]
     for model in models:
         for name, info in model.model_fields.items():
@@ -110,7 +105,7 @@ def test_merge_policy_helper_reports_declared_policies() -> None:
     assert merge_policy(VcsConfig, "auth") == "org_only"
     assert merge_policy(VcsConfig, "base_url") == "org_only"
     assert merge_policy(SquadFields, "limits") == "org_only"
-    assert merge_policy(Budgets, "tokens") == "tighten_only"
+    assert merge_policy(Budgets, "tool_calls") == "tighten_only"
 
 
 def test_json_schema_carries_merge_policy_metadata(tmp_path: Path) -> None:
@@ -119,37 +114,6 @@ def test_json_schema_carries_merge_policy_metadata(tmp_path: Path) -> None:
     assert vcs["base_url"]["x-merge"] == "org_only"
     assert vcs["approve_mode"]["x-merge"] == "tighten_only"
     assert vcs["approve_mode"]["x-order"] == ["none", "comment", "approve"]
-
-
-@pytest.mark.parametrize(
-    "rule", ["SEC-SECRETS-001", "sec-secrets-001", " SEC-INJ-001 "]
-)
-def test_floor_rules_cannot_be_disabled_in_any_case(rule: str) -> None:
-    with pytest.raises(ValidationError, match="floor rules cannot be disabled"):
-        AgentConfig.model_validate({"disabled_rules": [rule]})
-
-
-def test_floor_rules_are_the_brief_list() -> None:
-    assert FLOOR_RULES == (
-        "SEC-SECRETS-001",
-        "SEC-INJ-001",
-        "SEC-INJ-002",
-        "SEC-XSS-001",
-        "SEC-AUTHZ-001",
-        "SEC-DESER-001",
-    )
-
-
-def test_floor_severity_cannot_be_downgraded() -> None:
-    with pytest.raises(ValidationError, match="must stay at blocker"):
-        AgentConfig.model_validate({"severity_overrides": {"SEC-INJ-001": "minor"}})
-    ok = AgentConfig.model_validate({"severity_overrides": {"SEC-INJ-001": "blocker"}})
-    assert ok.severity_overrides == {"SEC-INJ-001": Severity.BLOCKER}
-
-
-def test_non_floor_severity_may_be_lowered() -> None:
-    ok = AgentConfig.model_validate({"severity_overrides": {"DWIGHT-LOG-002": "nit"}})
-    assert ok.severity_overrides["DWIGHT-LOG-002"] == Severity.NIT
 
 
 @pytest.mark.parametrize("agent_id", ["jim", "michael", "pam"])
@@ -173,14 +137,19 @@ def test_duplicate_extra_agent_ids_are_rejected() -> None:
 
 
 def test_effective_config_rejects_budgets_above_platform_limits() -> None:
-    raw = {"agents": {"dwight": {"budgets": {"tokens": 300000}}}}
-    with pytest.raises(ValidationError, match=r"platform ceiling limits\.max_tokens"):
+    raw = {"agents": {"dwight": {"budgets": {"wall_clock_seconds": 9999}}}}
+    with pytest.raises(
+        ValidationError, match=r"platform ceiling limits\.max_wall_clock"
+    ):
         SquadConfig.model_validate(raw)
 
 
 def test_effective_config_accepts_budgets_within_limits() -> None:
-    raw = {"agents": {"dwight": {"budgets": {"tokens": 150000}}}}
-    assert SquadConfig.model_validate(raw).agents["dwight"].budgets.tokens == 150000
+    raw = {"agents": {"dwight": {"budgets": {"wall_clock_seconds": 1200}}}}
+    assert (
+        SquadConfig.model_validate(raw).agents["dwight"].budgets.wall_clock_seconds
+        == 1200
+    )
 
 
 def test_secret_names_must_match_the_name_shape() -> None:
@@ -203,19 +172,6 @@ def test_accepted_risk_requires_a_reason_and_expiry() -> None:
     assert risk.expires == date(2027, 1, 1)
 
 
-def test_baseline_entries_need_an_identity_and_an_expiry() -> None:
-    with pytest.raises(ValidationError):
-        BaselineEntry.model_validate({"rule_id": "R-1", "file": "a.ts", "reason": "x"})
-    with pytest.raises(ValidationError):
-        BaselineEntry.model_validate(
-            {"file": "a.ts", "reason": "x", "expires": "2027-01-01"}
-        )
-    with pytest.raises(ValidationError):
-        Baseline.model_validate(
-            {"accepted": [{"rule_id": "R-1", "file": "a.ts", "reason": "x"}]}
-        )
-
-
 def test_schema_defaults_match_the_brief() -> None:
     config = SquadConfig()
     assert config.skills.max_skills == 20
@@ -229,24 +185,19 @@ def test_schema_defaults_match_the_brief() -> None:
     assert config.implementer.branch_template == "pam/{task_key}-{slug}"
     assert config.implementer.mr_draft is False
     assert config.implementer.sandbox.timeout_seconds == 1800
-    assert config.llm.tag_template[0] == "squad:code-squad"
-    assert config.observability.content_capture == "METADATA"
     assert config.limits.max_tokens == 200000
     assert config.secrets.provider == "k8s_files"
     assert config.posting.force_dry_run is False
     assert config.trigger.debounce_seconds == 30
     assert config.trigger.skip_labels == ["skip-squad"]
     assert config.review.min_confidence_to_publish == "medium"
-    assert config.review.verdict.request_changes_on_blocker is True
     assert config.routing.timeouts_seconds == {"default": 600}
 
 
 def test_default_agent_budgets_fit_within_platform_limits() -> None:
-    budgets: Any = Budgets()
+    budgets = Budgets()
     limits = SquadConfig().limits
-    assert budgets.tokens <= limits.max_tokens
     assert budgets.wall_clock_seconds <= limits.max_wall_clock_seconds
-    assert budgets.tool_calls <= limits.max_tool_calls
 
 
 def test_repo_config_model_accepts_partial_documents() -> None:
@@ -256,21 +207,80 @@ def test_repo_config_model_accepts_partial_documents() -> None:
     assert parsed == {"review": {"max_findings": 5}}
 
 
-def test_baseline_loader_refuses_aliases_and_reports_problems() -> None:
-    from code_squad._common.config.baseline import active_entries, load_baseline
-    from code_squad._common.config.errors import ConfigError
+def test_b2_new_fields_have_their_documented_defaults() -> None:
+    config = SquadConfig()
+    assert config.llm.allowed_models == []
+    assert config.limits.max_request_bytes == 1_000_000
+    assert config.limits.max_run_tokens == 400_000
+    assert config.implementer.allowed_protected_paths == []
+    assert config.trigger.allowed_assigners == []
+    assert config.trigger.skip_bot_authors is False
 
-    with pytest.raises(ConfigError, match="aliases"):
-        load_baseline("a: &x [1]\nb: *x\n")
-    with pytest.raises(ConfigError, match="baseline is invalid"):
-        load_baseline(
-            "accepted:\n  - file: a.ts\n    reason: x\n    expires: 2027-01-01\n"
-        )
-    baseline = load_baseline(
-        "accepted:\n"
-        "  - rule_id: R-1\n    file: a.ts\n    reason: old\n    expires: 2026-01-01\n"
-        "  - rule_id: R-2\n    file: b.ts\n    reason: new\n    expires: 2027-01-01\n"
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"agents": {"dwight": {"disabled_rules": []}}},
+        {"agents": {"dwight": {"severity_overrides": {}}}},
+        {"agents": {"dwight": {"language": "en"}}},
+        {"agents": {"dwight": {"budgets": {"tokens": 1000}}}},
+        {"agents": {"dwight": {"budgets": {"cost_hint_usd": 1.0}}}},
+        {"review": {"summary_template": None}},
+        {"review": {"chunking": "truncate"}},
+        {"review": {"suppressions_enabled": True}},
+        {"review": {"baseline_file": ".squad/baseline.yml"}},
+        {"review": {"verdict": {"request_changes_on_blocker": True}}},
+        {"trigger": {"slash_commands": ["review"]}},
+        {"vcs": {"status_mode": "auto"}},
+        {"llm": {"tag_template": ["squad:code-squad"]}},
+        {"llm": {"aliases": {}}},
+        {"llm": {"budget_usd_per_day": 5}},
+        {"llm": {"api_key_secret": "llm-api-key"}},
+        {"observability": {"sampling_ratio": 1.0}},
+        {"observability": {"content_capture": "METADATA"}},
+        {"observability": {"log_level": "INFO"}},
+        {"observability": {"otlp_endpoint": None}},
+        {"ops": {"incident_window_minutes": 60}},
+        {"implementer": {"sandbox": {"image": "img:latest"}}},
+        {"implementer": {"sandbox": {"cpu": "1"}}},
+        {"implementer": {"sandbox": {"memory": "1Gi"}}},
+        {"security": {"local_scanners": {"gitleaks": True}}},
+        {"limits": {"max_tool_calls": 10}},
+    ],
+)
+def test_keys_without_run_time_effect_are_not_in_the_schema(
+    raw: dict[str, Any],
+) -> None:
+    with pytest.raises(ValidationError):
+        SquadFields.model_validate(raw)
+
+
+def test_enforced_keys_that_remain_in_the_schema() -> None:
+    agent = AgentConfig.model_validate(
+        {"fallback_model": "haiku-5-5", "budgets": {"tool_calls": 40}}
     )
-    active, warnings = active_entries(baseline, date(2026, 10, 31))
-    assert [entry.rule_id for entry in active] == ["R-2"]
-    assert any("R-1" in w and "expired" in w for w in warnings)
+    assert agent.fallback_model == "haiku-5-5"
+    assert agent.budgets.tool_calls == 40
+    assert agent.budgets.wall_clock_seconds == 900
+    assert ReviewConfig().max_diff_bytes == 400000
+
+
+def test_baseline_model_and_module_are_gone() -> None:
+    import importlib.util
+
+    assert importlib.util.find_spec("code_squad._common.config.baseline") is None
+    assert importlib.util.find_spec("code_squad._common.config.reload") is None
+    assert not hasattr(schema_module, "Baseline")
+
+
+def test_accepted_risk_scope_fields_are_optional() -> None:
+    risk = AcceptedRisk.model_validate(
+        {
+            "id": "CVE-2024-1",
+            "reason": "x",
+            "expires": "2027-01-01",
+            "package": "lodash",
+            "path": "services/web/**",
+        }
+    )
+    assert (risk.package, risk.path) == ("lodash", "services/web/**")

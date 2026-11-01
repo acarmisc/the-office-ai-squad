@@ -11,13 +11,13 @@ are checked with `extra="forbid"`, so an unknown key returns `422`. The JSON Sch
 | `GET /ping` | Liveness. | `200 {"status": "ok"}` |
 | `GET /ready` | Readiness: the agent specification loaded. It does not call the model gateway, so a gateway outage does not make a pod unready. | `200 {"status": "ready", "agent": ...}`, or `503` with the load error type |
 | `GET /metrics` | Prometheus text format. | `200` |
-| `POST /invocations` | Run the agent. | `200` with the result; `202` with `job_id` when `Prefer: respond-async`; `400` for a body that is not JSON; `401` when `SQUAD_API_TOKEN` is set and the bearer token is missing or wrong; `422` with `detail` for validation errors; `503` when the agent did not load |
+| `POST /invocations` | Run the agent. | `200` with the result; `202` with `job_id` when `Prefer: respond-async`; `400` for a body that is not JSON; `401` when the bearer token is missing or wrong, or when no token is configured and `SQUAD_ALLOW_UNAUTHENTICATED` is not `1`; `413` for a body over `SQUAD_MAX_REQUEST_BYTES`; `422` with `detail` for validation errors, including org-only `project_config` fields; `503` when the agent did not load |
 | `GET /jobs/{job_id}` | State of an asynchronous job: `running`, `done` (with `result`) or `failed`. | `200`; `401` when the token is required and missing or wrong; `404` for an unknown id |
 | `POST /webhooks/gitlab`, `POST /webhooks/github` | Webhook receivers, `michael` only, enabled with `WEBHOOK_PROVIDERS`. | See [Review sequence](review-sequence.md). |
 
 `/invocations` and `/jobs/{id}` accept an optional shared bearer token (`Authorization: Bearer <token>`, from `SQUAD_API_TOKEN` or
-`SQUAD_API_TOKEN_FILE`). `/ping`, `/ready`, `/metrics` and the webhook routes are not gated by it. With the token unset, the
-endpoints are open and each pod logs one warning. Restrict the endpoints by network as well, as described in
+`SQUAD_API_TOKEN_FILE`). `/ping`, `/ready`, `/metrics` and the webhook routes are not gated by it. With no token, the
+endpoints refuse every request unless `SQUAD_ALLOW_UNAUTHENTICATED=1` is set. Restrict the endpoints by network as well, as described in
 [Network and egress](../deployment/network-and-egress.md) and [Hardening](../security/hardening.md#api-authentication).
 
 ## Request
@@ -33,7 +33,7 @@ Every field is optional except `prompt`.
 | `post` | boolean, `true` or `false` | `false` is a dry run. `null` is rejected. When absent, writes are allowed unless the organisation forces dry run. |
 | `model` | model alias, up to 128 characters | Overrides the agent's model for this call. |
 | `litellm_tags` | up to 20 `key:value` strings | Extra LiteLLM tags for cost attribution. |
-| `project_config` | object | Allow-listed per-call overrides: `vcs_provider`, `vcs_base_url`, `vcs_token_secret`, `llm_api_key_secret` (secret names), `skills_repo_path`, `skills_ref`, `config_ref`, and `overrides` (layer 5 of the configuration). |
+| `project_config` | object | Per-call overrides: `skills_repo_path`, `skills_ref` (`base` only), `config_ref` (`base` only), and `overrides` (layer 5 of the configuration). `vcs_provider`, `vcs_base_url`, `vcs_token_secret`, `skills_ref: head` and `config_ref: head` are organisation-only and return `422`. `llm_api_key_secret` is refused with `422` because it has no runtime effect. |
 | `skills` | list of `{name, description, body, source}` | Payload skills, the highest-precedence guidance. `source` is always `payload`. |
 | `attachments` | list | Each item has `type` (`image` or `text`), `name`, `media_type`, `data` and `sha256`. The digest must match the data. Only `pam` accepts attachments; other agents return `422`. The data is validated but is not yet passed to the model. |
 | `idempotency_key` | string, up to 128 characters | Used as the base of the specialist idempotency keys. |

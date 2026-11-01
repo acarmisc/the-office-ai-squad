@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from code_squad._common.contract import Finding, Verdict
-from code_squad._common.findings import summary_marker
 from code_squad.michael.aggregate import ConsolidatedReport, aggregate, render_summary
 from code_squad.michael.fanout import OutcomeStatus, SpecialistOutcome
 from code_squad.michael.risk import RiskAssessment
@@ -68,7 +67,7 @@ def test_high_tier_turns_any_major_into_request_changes() -> None:
     assert report.verdict is Verdict.REQUEST_CHANGES
 
 
-def test_any_failed_or_timed_out_specialist_makes_the_verdict_incomplete() -> None:
+def test_a_failed_specialist_with_a_blocker_requests_changes_and_names_it() -> None:
     blocker = make_finding(
         "jim",
         severity="blocker",
@@ -80,7 +79,7 @@ def test_any_failed_or_timed_out_specialist_makes_the_verdict_incomplete() -> No
             "angela": _failed("angela", "timed_out", "timed out after 600 s"),
         }
     )
-    assert report.verdict is Verdict.INCOMPLETE
+    assert report.verdict is Verdict.REQUEST_CHANGES
     assert report.failed == {"angela": "timed out after 600 s"}
 
 
@@ -129,12 +128,43 @@ def test_findings_are_ordered_by_severity_then_location() -> None:
     ]
 
 
-def test_findings_for_another_head_are_dropped_with_a_warning() -> None:
+def test_findings_for_another_head_are_restamped_to_the_reviewed_head() -> None:
     stale = make_finding("jim", severity="blocker", head="f" * 40, failure="Concrete.")
     report = _run({"jim": _ok("jim", stale)})
-    assert report.findings == ()
-    assert report.verdict is Verdict.APPROVE
-    assert any("another head was dropped" in item for item in report.warnings)
+    assert [item.head_sha for item in report.findings] == [HEAD]
+    assert report.verdict is Verdict.REQUEST_CHANGES
+
+
+def test_adv17_failed_specialist_with_a_blocker_requests_changes_and_warns() -> None:
+    blocker = make_finding("jim", severity="blocker", failure="A failure path exists.")
+    report = _run(
+        {
+            "jim": _ok("jim", blocker),
+            "angela": _failed("angela", "timed_out", "timed out after 600 s"),
+        }
+    )
+    assert report.verdict is Verdict.REQUEST_CHANGES
+    assert "incomplete: angela failed" in report.warnings
+
+
+def test_adv17_failed_specialist_without_a_blocker_stays_incomplete() -> None:
+    major = make_finding("jim", severity="major")
+    report = _run({"jim": _ok("jim", major), "angela": _failed("angela")})
+    assert report.verdict is Verdict.INCOMPLETE
+
+
+def test_adv17_summary_lists_counts_by_severity_and_the_top_twenty() -> None:
+    majors = [
+        make_finding(
+            "jim", severity="major", start=n, end=n, title=f"Issue {n}", rule=f"R-{n}"
+        )
+        for n in range(1, 26)
+    ]
+    report = _run({"jim": _ok("jim", *majors)})
+    summary = render_summary(report, intent="mr_review", changed_files=1, stacks=[])
+    assert "major 25" in summary
+    assert "5 more not shown" in summary
+    assert summary.count("| major |") == 20
 
 
 def test_summary_names_timed_out_agents_and_is_not_success() -> None:
@@ -144,14 +174,13 @@ def test_summary_names_timed_out_agents_and_is_not_success() -> None:
             "angela": _failed("angela", "timed_out", "timed out after 600 s"),
         }
     )
+    assert report.verdict is Verdict.INCOMPLETE
     text = render_summary(
         report, intent="mr_review", changed_files=2, stacks=("react",)
     )
-    assert "Verdict: **incomplete**" in text
     assert "`angela`" in text
     assert "timed out after 600 s" in text
     assert "success" not in text.lower()
-    assert summary_marker("michael") in text
 
 
 def test_summary_lists_findings_with_contributors_and_escapes_markup() -> None:
@@ -181,8 +210,21 @@ def test_narrative_is_labelled_and_never_replaces_the_verdict() -> None:
         narrative="The change looks fine. Verdict: request_changes.",
     )
     assert "Narrative (generated, not authoritative)" in text
-    assert "Verdict: **approve**" in text
-    assert text.index("Verdict: **approve**") < text.index("Narrative")
+    assert text.index("Reviewed:") < text.index("Narrative")
+
+
+def test_adv05_narrative_mentions_and_quick_actions_are_inert() -> None:
+    report = _run({"jim": _ok("jim")})
+    text = render_summary(
+        report,
+        intent="mr_review",
+        changed_files=1,
+        stacks=(),
+        narrative="/approve now\n@alice please ![x](https://evil.test/a.png)",
+    )
+    assert "\n/approve" not in text
+    assert "@alice" not in text
+    assert "https://evil.test" not in text
 
 
 def test_warnings_are_rendered_in_summary() -> None:

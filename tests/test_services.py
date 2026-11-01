@@ -11,11 +11,14 @@ from code_squad._common.config.loader import ConfigSources
 from code_squad._common.config.schema import ImplementerConfig
 from code_squad._common.contract import (
     Confidence,
+    Finding,
     InvocationRequest,
     RunStatus,
     Severity,
 )
 from code_squad._common.fake_model import ScriptedModel, ToolCall, Turn
+from code_squad._common.findings import summary_marker
+from code_squad._common.observability import REGISTRY
 from code_squad._common.registry import get_spec
 from code_squad._common.review_tools import publish_review
 from code_squad._common.runtime import run_task
@@ -51,6 +54,11 @@ class _Secrets:
     def get(self, name: str) -> str:
         assert name == "vcs-token"
         return "fake-token-for-tests"
+
+
+class _NoSecrets:
+    def get(self, name: str) -> str:
+        return ""
 
 
 def _sources(tmp_path: Path, text: str | None) -> ConfigSources:
@@ -147,6 +155,35 @@ def test_force_dry_run_disables_posting_and_is_reported(tmp_path: Path) -> None:
     assert services["posting_allowed"] is False
     assert FORCE_DRY_RUN_WARNING in services["config_warnings"]
     assert plan_run(_jim(), services).post_override is False
+
+
+def test_rejected_repo_layer_note_reaches_the_posted_summary(tmp_path: Path) -> None:
+    fake = _fake({".squad/config.yml": "limits:\n  max_iterations: 99\n"})
+    services = _builder(tmp_path, fake=fake).build(_cr_request(post=True), "jim")
+    plan = plan_run(make_spec(tools=(finish, publish_review)), services)
+    model = ScriptedModel(
+        [
+            Turn(
+                (ToolCall("publish_review", {"findings": [], "summary": "Nothing."}),)
+            ),
+            finish_turn("approve", "Nothing found.", []),
+        ]
+    )
+    run_task(
+        plan.spec,
+        _cr_request(post=True),
+        services=services,
+        model_factory=factory_of(model),
+        post_override=plan.post_override,
+    )
+    summary = [
+        comment
+        for comment in fake.list_comments(s.REF)
+        if summary_marker("michael") in comment.body
+    ]
+    assert summary
+    assert "#### Configuration notes" in summary[0].body
+    assert "repo layer ignored" in summary[0].body
 
 
 def test_force_dry_run_blocks_writes_in_a_full_run(tmp_path: Path) -> None:
@@ -523,3 +560,123 @@ def test_darryl_backend_warnings_are_appended_to_config_warnings(
     assert any(
         w.startswith("cluster access disabled") for w in services["config_warnings"]
     )
+
+
+def _failures() -> float:
+    return REGISTRY.get_sample_value("squad_config_reload_failures_total") or 0.0
+
+
+def test_dwight_gets_the_accepted_risk_pre_publish_filter(tmp_path: Path) -> None:
+    text = (
+        "security:\n  accepted_risks:\n"
+        "    - id: CVE-2024-1\n      reason: patch pending\n      expires: 2099-01-01\n"
+    )
+    builder = ServiceBuilder(
+        provider_factory=lambda _settings: _fake(),
+        secret_provider=_NoSecrets(),
+        config_sources=_sources(tmp_path, text),
+        env={},
+    )
+    services = builder.build(request(), "dwight")
+    filters = services["pre_publish_filters"]
+    assert len(filters) == 1
+    kept, notes = filters[0]([_finding("CVE-2024-1"), _finding("SEC-XSS-001")])
+    assert [f.rule_id for f in kept] == ["SEC-XSS-001"]
+    assert any("patch pending" in note for note in notes)
+
+
+def test_other_agents_get_no_pre_publish_filter(tmp_path: Path) -> None:
+    services = _builder(tmp_path, "").build(request(), "jim")
+    assert services.get("pre_publish_filters", []) == []
+
+
+def _finding(rule_id: str) -> Finding:
+    return Finding.model_validate(
+        finding_dict(agent="dwight", rule_id=rule_id, severity="minor")
+    )
+
+
+def test_summary_notes_carry_rejected_layers_and_invalid_org(tmp_path: Path) -> None:
+    fake = _fake({".squad/config.yml": "limits:\n  max_iterations: 99\n"})
+    services = _builder(tmp_path, fake=fake).build(_cr_request(), "jim")
+    assert any("repo layer ignored" in n for n in services["summary_notes"])
+    assert services["summary_notes"] is services["config_warnings"]
+
+    (tmp_path / "invalid").mkdir()
+    invalid = _builder(tmp_path / "invalid", "posting: {force_dry_run: 'maybe'}\n")
+    notes = invalid.build(request(), "jim")["summary_notes"]
+    assert any("organisation configuration is invalid" in n for n in notes)
+
+
+def test_invalid_reload_keeps_the_last_good_org_config(tmp_path: Path) -> None:
+    builder = _builder(tmp_path, "review:\n  max_findings: 7\n")
+    first = builder.build(request(), "jim")
+    assert first["publish_options"].max_findings == 7
+
+    before = _failures()
+    (tmp_path / "squad.yaml").write_text(
+        "posting: {force_dry_run: 'maybe'}\n", encoding="utf-8"
+    )
+    second = builder.build(request(), "jim")
+    assert second["publish_options"].max_findings == 7
+    assert second["posting_allowed"] is True
+    assert any("last good" in w for w in second["config_warnings"])
+    assert _failures() == before + 1
+
+
+def test_kill_switch_in_a_broken_org_file_disables_posting_with_the_last_good_config(
+    tmp_path: Path,
+) -> None:
+    builder = _builder(tmp_path, "review:\n  max_findings: 7\n")
+    assert builder.build(request(), "jim")["posting_allowed"] is True
+
+    (tmp_path / "squad.yaml").write_text(
+        "posting: {force_dry_run: true}\nreview: {max_findings: 'many'}\n",
+        encoding="utf-8",
+    )
+    services = builder.build(request(), "jim")
+    assert services["posting_allowed"] is False
+    assert services["publish_options"].max_findings == 7
+    assert any("force_dry_run" in w for w in services["config_warnings"])
+    assert any("last good" in w for w in services["config_warnings"])
+
+
+def test_unreadable_org_file_fails_closed_even_with_a_last_good_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    builder = _builder(tmp_path, "review:\n  max_findings: 7\n")
+    assert builder.build(request(), "jim")["posting_allowed"] is True
+
+    def unreadable(self: Path, *args: Any, **kwargs: Any) -> str:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    services = builder.build(request(), "jim")
+    assert services["posting_allowed"] is False
+    assert "publish_options" not in services
+
+
+def test_force_dry_run_is_read_on_each_invocation(tmp_path: Path) -> None:
+    builder = _builder(tmp_path, "posting:\n  force_dry_run: false\n")
+    assert builder.build(request(), "jim")["posting_allowed"] is True
+    (tmp_path / "squad.yaml").write_text(
+        "posting:\n  force_dry_run: true\n", encoding="utf-8"
+    )
+    services = builder.build(request(), "jim")
+    assert services["posting_allowed"] is False
+    assert plan_run(_jim(), services).post_override is False
+
+
+def test_a_broken_org_file_is_counted_once_however_often_it_is_read(
+    tmp_path: Path,
+) -> None:
+    builder = _builder(tmp_path, "review:\n  max_findings: 7\n")
+    builder.build(request(), "jim")
+    before = _failures()
+    (tmp_path / "squad.yaml").write_text(
+        "posting: {force_dry_run: 'maybe'}\n", encoding="utf-8"
+    )
+    for _ in range(3):
+        services = builder.build(request(), "jim")
+        assert services["publish_options"].max_findings == 7
+    assert _failures() == before + 1

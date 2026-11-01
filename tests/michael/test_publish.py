@@ -205,3 +205,64 @@ def test_status_is_written_against_the_project_and_head() -> None:
     fake = react_provider()
     _publish(fake, _report(Verdict.APPROVE))
     assert _statuses(fake)[0]["project"] == PROJECT
+
+
+def test_adv23_incomplete_with_a_blocker_is_request_changes_with_a_warning() -> None:
+    fake = react_provider()
+    report = _report(
+        Verdict.REQUEST_CHANGES,
+        (_blocker(),),
+        failed={"angela": "timed out after 600 s"},
+    )
+    _publish(fake, report)
+    assert [item["state"] for item in _statuses(fake)] == ["failed"]
+
+
+def test_adv23_incomplete_without_a_blocker_is_pending_and_names_the_agent() -> None:
+    fake = react_provider()
+    _publish(fake, _report(Verdict.INCOMPLETE, failed={"angela": "HTTP 503"}))
+    statuses = _statuses(fake)
+    assert [item["state"] for item in statuses] == ["pending"]
+    assert "angela" in str(statuses[0]["description"])
+
+
+def test_adv01_michael_blocker_on_a_non_added_line_still_requests_changes() -> None:
+    fake = react_provider()
+    stray = make_finding(
+        "jim",
+        severity="blocker",
+        start=500,
+        end=500,
+        title="Outside the hunk",
+        failure="A failure path exists.",
+    )
+    report = _report(Verdict.REQUEST_CHANGES, (stray,))
+    outcome = publish_consolidated(
+        fake,
+        REF,
+        report,
+        SUMMARY,
+        gate=PostingGate(post_allowed=True),
+        options=_options(),
+    )
+    assert outcome.verdict is Verdict.REQUEST_CHANGES
+    assert outcome.posted.discussions == 0
+
+
+def test_configuration_notes_reach_the_michael_summary() -> None:
+    fake = react_provider()
+    note = "repo layer ignored: .squad/config.yml: limits.max_iterations is org-only"
+    publish_consolidated(
+        fake,
+        REF,
+        _report(Verdict.APPROVE),
+        SUMMARY,
+        gate=PostingGate(post_allowed=True),
+        options=_options(),
+        config_notes=[note],
+    )
+    summary = [
+        c for c in fake.list_comments(REF) if summary_marker("michael") in c.body
+    ]
+    assert "#### Configuration notes" in summary[0].body
+    assert note in summary[0].body

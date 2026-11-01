@@ -7,7 +7,9 @@ or unreadable leaves that source running without the key. The egress proxy is re
 
 from __future__ import annotations
 
+import hashlib
 import os
+import threading
 from collections.abc import Mapping
 from datetime import date
 from typing import Any, Final
@@ -71,20 +73,59 @@ def publish_verdict_cap() -> tuple[VerdictCap, str] | None:
     return "comment", UNVERIFIED
 
 
+_INTEL_LOCK: Final = threading.Lock()
+_INTEL_SERVICES: dict[str, IntelService] = {}
+
+
+def reset_intel_services() -> None:
+    """Forget the shared intel services; the next build starts with empty caches."""
+    with _INTEL_LOCK:
+        _INTEL_SERVICES.clear()
+
+
 def build_intel_service(
     security: SecurityConfig | None,
     secrets: SecretProvider | None,
     *,
     env: Mapping[str, str] | None = None,
 ) -> IntelService:
+    """One intel service per process and configuration, so KEV and caches persist.
+
+    The key covers the security configuration, the egress proxy and whether the NVD and
+    GHSA secrets exist. Rotating a secret's value needs a restart to take effect.
+    """
     cfg = security or SecurityConfig()
     environ: Mapping[str, str] = os.environ if env is None else env
-    ttl = float(cfg.cache_ttl_seconds)
+    proxy = environ.get(PROXY_ENV) or None
     nvd_key = _secret(secrets, NVD_KEY_SECRET)
+    ghsa_token = _secret(secrets, GHSA_TOKEN_SECRET)
+    key = _service_key(cfg, proxy, nvd_key is not None, ghsa_token is not None)
+    with _INTEL_LOCK:
+        service = _INTEL_SERVICES.get(key)
+        if service is None:
+            service = _new_intel_service(cfg, proxy, nvd_key, ghsa_token)
+            _INTEL_SERVICES[key] = service
+        return service
+
+
+def _service_key(
+    cfg: SecurityConfig, proxy: str | None, has_nvd: bool, has_ghsa: bool
+) -> str:
+    parts = (cfg.model_dump_json(), proxy or "", str(has_nvd), str(has_ghsa))
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def _new_intel_service(
+    cfg: SecurityConfig,
+    proxy: str | None,
+    nvd_key: str | None,
+    ghsa_token: str | None,
+) -> IntelService:
+    ttl = float(cfg.cache_ttl_seconds)
     interval = NVD_INTERVAL_WITH_KEY if nvd_key else NVD_INTERVAL_NO_KEY
     http = IntelHttp(
         allowed_hosts=frozenset(cfg.allowed_hosts),
-        proxy_url=environ.get(PROXY_ENV) or None,
+        proxy_url=proxy,
         min_intervals={NVD_HOST: interval},
     )
     return IntelService(
@@ -95,7 +136,7 @@ def build_intel_service(
         ),
         ghsa=GhsaClient(
             http,
-            token=_secret(secrets, GHSA_TOKEN_SECRET),
+            token=ghsa_token,
             cache=TtlCache(ttl_seconds=ttl),
         ),
         nvd=NvdClient(http, api_key=nvd_key, cache=TtlCache(ttl_seconds=ttl)),

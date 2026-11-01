@@ -100,3 +100,20 @@ destroyed after each invocation.
 - Output is capped (64 KiB per stream by default, head plus tail). Secret redaction runs after
   capture, so a secret split across the cut is not redacted. Secrets are never placed in
   arguments or output in the first place.
+
+## 2026-11 hardening
+
+- The argv policy is defence in depth, not the isolation boundary. The Kubernetes pod (no
+  secrets, network allow-list, read-only root, destroyed after each run) is the boundary.
+  Review found that argv checks alone could not stop read-capable git options
+  (`--pathspec-from-file`, `-O`, `-C`), configuration injection (`-c`, `core.*`) or a
+  repository `.npmrc` that chooses the script shell, so those are now refused or pinned.
+- `git commit` accepts only `-m` and `-q` in exec. Options that read files or amend history
+  (`-F`, `--template`, `-a`, `--amend`) are refused. `git config` is not available.
+- npm, pnpm and yarn run with `NPM_CONFIG_USERCONFIG=/dev/null`, a global configuration path
+  under the sandbox home, and `npm_config_script_shell=/bin/sh`. Environment settings take
+  precedence over the repository's `.npmrc`.
+- Implementer tools refuse `LocalProcessSandbox` unless `ALLOW_LOCAL_SANDBOX=1` is set. The
+  check runs in `pam/session.py`, so it holds whatever sandbox factory the deployment wires.
+- Protected paths change only when `implementer.allowed_protected_paths` (org-only) matches
+  them. The model cannot allow them through a tool argument.

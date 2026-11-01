@@ -156,6 +156,7 @@ class _Policy:
     skip_labels: tuple[str, ...]
     skip_draft: bool
     skip_wip_titles: bool
+    allowed_assigners: tuple[str, ...]
 
 
 def decide_trigger(
@@ -169,6 +170,7 @@ def decide_trigger(
     skip_draft: bool = True,
     skip_wip_titles: bool = True,
     skip_bot_authors: bool = True,
+    allowed_assigners: Sequence[str] = (),
 ) -> TriggerDecision:
     bot = bot_username.lower()
     if event.author.lower() == bot:
@@ -184,6 +186,7 @@ def decide_trigger(
         skip_labels=tuple(skip_labels),
         skip_draft=skip_draft,
         skip_wip_titles=skip_wip_titles,
+        allowed_assigners=tuple(allowed_assigners),
     )
     if event.kind == "change_request":
         return _change_request(event, bot, policy)
@@ -253,6 +256,13 @@ def _issue(event: WebhookEvent, bot: str, policy: _Policy) -> TriggerDecision:
     if bot in _lower(event.assignees) and event.action in _ISSUE_ASSIGNMENT_ACTIONS:
         if _labels_skipped(event.labels, policy.skip_labels):
             return _ignore("issue carries a skip label")
+        # For issue events the author is the actor who made the assignment.
+        if not policy.allowed_assigners:
+            return _ignore(
+                "trigger.allowed_assigners is empty; issue assignment ignored"
+            )
+        if event.author.lower() not in _lower(policy.allowed_assigners):
+            return _ignore("assigner is not in trigger.allowed_assigners")
         return TriggerDecision(True, "implement", "issue assigned to the bot")
     return _ignore(f"issue action '{event.action}' is not handled")
 

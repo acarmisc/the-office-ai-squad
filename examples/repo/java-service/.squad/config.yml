@@ -22,4 +22,4 @@ agents:
     prompt_extra: "Check JPA queries for N+1 patterns and missing transactions."
     max_iterations: 30
     budgets:
-      tokens: 120000
+      tool_calls: 80

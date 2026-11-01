@@ -165,14 +165,18 @@ secrets:
   existingSecret: code-squad-secrets
 
 api:
-  # Optional shared bearer token for POST /invocations and GET /jobs/{id} on every agent. michael
-  # also sends it to the specialists. Empty means no token check: each pod logs one warning.
-  # Webhook routes keep their own signature checks and are never gated by this token.
+  # Shared bearer token for POST /invocations and GET /jobs/{id} on every agent. michael also
+  # sends it to the specialists. REQUIRED unless allowUnauthenticated is true: without a token
+  # the agents refuse these requests (they fail closed). Webhook routes keep their own signature
+  # checks and are never gated by this token.
   tokenSecret:
-    # Secret that holds the token. Empty disables the check.
+    # Secret that holds the token. Required unless allowUnauthenticated is true.
     name: ""
     # Key inside that Secret, exposed as SQUAD_API_TOKEN through secretKeyRef.
     key: api-token
+  # Keep /invocations and /jobs open when no token is configured. Renders
+  # SQUAD_ALLOW_UNAUTHENTICATED=1 on every agent. For local demos only; keep false otherwise.
+  allowUnauthenticated: false
 
 # Org-level configuration (layer 2 of the config model) and the project registry (layer 3).
 config:
