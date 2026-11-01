@@ -36,7 +36,7 @@ port="${FIRST_LOCAL_PORT}"
 for agent in "${AGENTS[@]}"; do
   ready=0
   for _ in $(seq 1 30); do
-    if curl -fsS "http://127.0.0.1:${port}/ready" >/dev/null 2>&1; then
+    if curl --noproxy "*" -fsS "http://127.0.0.1:${port}/ready" >/dev/null 2>&1; then
       ready=1
       break
     fi

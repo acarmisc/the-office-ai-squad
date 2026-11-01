@@ -79,10 +79,7 @@ class ScriptedModel(Model):
 
     @classmethod
     def from_json(cls, path: Path | str) -> ScriptedModel:
-        data: Any = json.loads(Path(path).read_text(encoding="utf-8"))
-        if not isinstance(data, list):
-            raise ValueError("a script must be a JSON list")
-        return cls([_turn_from_entry(entry, index) for index, entry in enumerate(data)])
+        return cls(load_script(path))
 
     def update_config(self, **model_config: Any) -> None:
         self._config.update(model_config)
@@ -172,6 +169,13 @@ class ScriptedModel(Model):
             },
             {"contentBlockStop": {}},
         ]
+
+
+def load_script(path: Path | str) -> list[Turn]:
+    data: Any = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("a script must be a JSON list")
+    return [_turn_from_entry(entry, index) for index, entry in enumerate(data)]
 
 
 def _turn_from_entry(entry: Any, index: int) -> Turn:

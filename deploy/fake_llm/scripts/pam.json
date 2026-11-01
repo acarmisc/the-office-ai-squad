@@ -1,0 +1,16 @@
+[
+  {
+    "tool": "read_knowledge",
+    "input": {
+      "topic": "react/index"
+    }
+  },
+  {
+    "tool": "finish",
+    "input": {
+      "verdict": "comment",
+      "summary": "Smoke run: frontend engineer completed its scripted pass. No changes were made and nothing was published.",
+      "findings": []
+    }
+  }
+]

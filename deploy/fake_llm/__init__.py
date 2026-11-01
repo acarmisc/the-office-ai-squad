@@ -1,1 +1,1 @@
-"""Fake OpenAI-compatible LLM stub for offline demos (implemented in M10)."""
+"""Offline OpenAI-compatible LLM stub (`python -m deploy.fake_llm`), see server.py."""
