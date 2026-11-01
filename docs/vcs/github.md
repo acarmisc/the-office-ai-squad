@@ -88,9 +88,12 @@ before an outcome can be redelivered.
 ## CI and workflow snippets
 
 `examples/github/github-actions-workflow.yml` runs on `pull_request` with `permissions: contents: read`. It
-calls michael with `curl` and `jq` only, so no third-party action runs with the job token. The `SQUAD_POST`
+calls a deployed michael with `curl` and `jq` only, so no third-party action runs with the job token. The `SQUAD_POST`
 repository variable turns publication on; the default is a dry run. Fork pull requests get no secrets, and
 the workflow reads only variables.
+
+To review a pull request without a deployed service, the composite action at the repository root runs one agent
+inside the job with the job's `GITHUB_TOKEN`. See [GitHub Actions review](github-actions.md).
 
 ## Verdicts and approvals
 

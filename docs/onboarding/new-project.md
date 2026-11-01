@@ -94,6 +94,9 @@ uv run squad config validate .squad/config.yml
 
 ## 7. Dry-run trial
 
+If the repository reviews pull requests in its own workflow, the [GitHub Actions review](../vcs/github-actions.md) page has the setup. It needs no service, and it is a dry run until `SQUAD_POST` is `true`.
+
+
 - [ ] Choose an open change request with a known problem and a known clean one.
 - [ ] Trigger a review in dry run with a manual call, or with the CI job and `SQUAD_POST=false`. A webhook
       delivery always requests publication, so enable the webhook only after the dry run:

@@ -62,9 +62,12 @@ class HttpClient:
             return self._send(method, url, headers=headers, params=params, json=json)
         except NotFoundError:
             raise
-        except (VcsError, httpx.HTTPError):
+        except VcsError:
             VCS_ERRORS.labels(self._provider, operation_label(method, url)).inc()
             raise
+        except httpx.HTTPError as exc:
+            VCS_ERRORS.labels(self._provider, operation_label(method, url)).inc()
+            raise VcsError(f"transport error: {type(exc).__name__}") from exc
 
     def _send(
         self,

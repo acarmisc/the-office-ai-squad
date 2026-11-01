@@ -73,6 +73,21 @@ so you can search for them in logs and in the result's `warnings`. For the opera
 | Invocations fail with a connection error | The gateway URL is wrong, or the NetworkPolicy blocks it | Check `llm.baseUrl` and `llmGatewayCIDRs`. The result names the exception type in `warnings`. |
 | Model requests succeed but the names are unknown | The gateway does not serve `haiku-5-5` or `sonnet-5-5` | Map those names in the gateway (see step 3 of [Deploy to Kubernetes](deploy-to-kubernetes.md#step-3-the-llm-gateway)). |
 
+## GitHub Actions review
+
+The in-runner mode runs in the job; see [GitHub Actions review](../vcs/github-actions.md) for the setup.
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| The step is green and the summary says no review ran | A draft pull request, or a fork pull request without `LLM_API_KEY` | Both are skipped on purpose. Mark the draft ready, or review the fork change by hand. |
+| `error: ... is not a pull request event` (exit 2) | The workflow is not triggered by `pull_request` | Use the trigger in `examples/github/github-actions-review-jim.yml`. |
+| `error: GITHUB_TOKEN is not set` (exit 2) | The `github-token` input is empty | Leave it at its default (`${{ github.token }}`). |
+| `error: LLM_BASE_URL and LLM_API_KEY must be set` (exit 2) | The variable or the secret is missing for a pull request from the same repository | Add `LLM_BASE_URL` as a repository variable and `LLM_API_KEY` as a secret. Dependabot runs need the secret granted to Dependabot. |
+| `403` when posting, or no `ai-review/<agent>` status | The job lacks `pull-requests: write` or `statuses: write` | Set the permissions in the workflow. An organisation policy can lower the default token. |
+| `status: failed` with `model call failed` | The gateway rejected the call (`401`) or is unreachable | Check the key and `LLM_BASE_URL`. Rotate the secret if the key is wrong. |
+| `error: --skills-path ... is not a directory` (exit 2) | The shared-skills checkout did not run, or the path is wrong | Check the `actions/checkout` step and the `path` it writes to. |
+| The image cannot be pulled | The package is private to the runner | Make the package public, or pass a pull credential to the job. |
+
 ## Still stuck
 
 1. Collect the `invocation_id` from the logs, the `stats.config_hash` from the result, and the exact `warnings`.

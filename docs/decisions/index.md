@@ -19,6 +19,7 @@ describes. For how to add one, see the [contributing guide](../contributing/inde
 | [0011](0011-vcs-abstraction.md) | VCS abstraction: protocol, capability flags, GitHub App first, no merge | accepted | 2026-11-01 | One `VcsProvider` protocol with capability flags and warned fallbacks; GitHub App preferred over a token; a conformance suite every provider passes; no merge operation. |
 | [0012](0012-agent-naming.md) | Agent naming: The Office ids, one mapping, functional role names | accepted | 2026-11-01 | Six lowercase ids from The Office; one mapping in `registry.py`; functional role names in docs and prompts; no persona humour. |
 | [0013](0013-operational-readiness.md) | Operational readiness after the adversarial review | accepted | 2026-11-01 | One publication pipeline with an `incomplete` outcome; fail-closed API authentication and body limits; dry-run and kill-switch fixes; org-only accepted risks; removal of unenforced keys; the first operational test runs dry first. |
+| [0014](0014-github-actions-review.md) | GitHub Actions review: an in-runner composite action with the same publication path | accepted | 2026-11-01 | One step runs one agent in the job with the job's token; no checkout of the pull request; dry run by default; forks skipped; the same result and publication as the service. |
 
 ## How the ADRs relate
 

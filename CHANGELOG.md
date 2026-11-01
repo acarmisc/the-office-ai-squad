@@ -3,6 +3,24 @@
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [semantic versioning](https://semver.org/) for the application and the chart.
 
+## [Unreleased]
+
+### GitHub Actions review
+
+#### Added
+
+- **In-runner review.** `squad ci review` runs one agent on a pull request inside a GitHub Actions job, with the job's
+  `GITHUB_TOKEN` and the single-project bootstrap. Drafts and forks without secrets are skipped; a dry run is the default.
+  `--fail-on` gates the step; `--skills-path` injects shared skills from the workspace. `michael` runs in the job too.
+- **Composite action.** `action.yml` at the repository root runs the image with `docker run` and writes a step summary and
+  outputs (`verdict`, `status`, `findings`, `result-file`). Example: `examples/github/github-actions-review-jim.yml`.
+  Documentation: `docs/vcs/github-actions.md`; decision 0014.
+
+#### Changed
+
+- The HTTP server and the CLI share one invocation path (`_common/execute.py`). Behaviour is unchanged.
+- `scripts/bump_image.py --version` also sets the action's image default, and the release `verify` job checks it.
+
 ## [0.1.0] - 2026-11-01
 
 ### Documentation, contributor kit and release workflow

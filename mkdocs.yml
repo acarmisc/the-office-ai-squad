@@ -53,6 +53,7 @@ nav:
   - VCS:
       - GitLab: vcs/gitlab.md
       - GitHub: vcs/github.md
+      - GitHub Actions review: vcs/github-actions.md
       - Adding a provider: vcs/adding-a-provider.md
   - Onboarding:
       - New project checklist: onboarding/new-project.md
@@ -96,5 +97,6 @@ nav:
       - 0011 VCS abstraction: decisions/0011-vcs-abstraction.md
       - 0012 Agent naming: decisions/0012-agent-naming.md
       - 0013 Operational readiness: decisions/0013-operational-readiness.md
+      - 0014 GitHub Actions review in the job: decisions/0014-github-actions-review.md
   - Handoff: HANDOFF.md
   - Build brief: BRIEF.md

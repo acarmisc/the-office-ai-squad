@@ -7,6 +7,15 @@ from typing import Annotated, Any, Literal
 
 import typer
 
+from code_squad._common.ci import report as ci_report
+from code_squad._common.ci.github_actions import (
+    CiUsageError,
+    FailOn,
+    ReviewOptions,
+    gate_exit_code,
+    run_review,
+    write_result,
+)
 from code_squad._common.config.commands import (
     SCHEMA_KINDS,
     expand_paths,
@@ -30,6 +39,8 @@ from code_squad._common.validation import ValidationFailure, validate_invocation
 app = typer.Typer(help="Code Squad: run an agent locally.", no_args_is_help=True)
 config_app = typer.Typer(help="Configuration commands.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
+ci_app = typer.Typer(help="Run an agent inside a CI job.", no_args_is_help=True)
+app.add_typer(ci_app, name="ci")
 
 
 @app.command()
@@ -109,6 +120,80 @@ def _run_agent(
         raise typer.Exit(code=2) from None
     result = run_task(spec, request)
     typer.echo(result.model_dump_json(indent=2))
+
+
+@ci_app.command("review")
+def ci_review(
+    agent: Annotated[
+        str,
+        typer.Option(
+            envvar="SQUAD_CI_AGENT",
+            help="jim (default), angela, dwight, darryl or michael.",
+        ),
+    ] = "jim",
+    post: Annotated[
+        bool,
+        typer.Option(
+            "--post/--no-post",
+            envvar="SQUAD_CI_POST",
+            help="Publish the review. Without it the run is a dry run.",
+        ),
+    ] = False,
+    skills_path: Annotated[
+        str | None,
+        typer.Option(
+            envvar="SQUAD_CI_SKILLS_PATH",
+            help="Directory of */SKILL.md, relative to GITHUB_WORKSPACE.",
+        ),
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option(envvar="SQUAD_CI_MODEL", help="Model alias from the allow-list."),
+    ] = None,
+    fail_on: Annotated[
+        FailOn,
+        typer.Option(
+            envvar="SQUAD_CI_FAIL_ON",
+            help="Exit 1 on request_changes, or on any incomplete outcome too.",
+        ),
+    ] = FailOn.NONE,
+    result_file: Annotated[
+        Path,
+        typer.Option(
+            envvar="SQUAD_CI_RESULT_FILE", help="Where the full JSON result is written."
+        ),
+    ] = Path("squad-result.json"),
+    event_path: Annotated[
+        Path | None,
+        typer.Option(help="Event payload. Default: GITHUB_EVENT_PATH."),
+    ] = None,
+) -> None:
+    """Review the pull request of this GitHub Actions run with one agent."""
+    options = ReviewOptions(
+        agent=agent,
+        post=post,
+        skills_path=skills_path or None,
+        model=model or None,
+        fail_on=fail_on,
+        result_file=result_file,
+        event_path=event_path,
+    )
+    try:
+        outcome = run_review(options, dict(os.environ))
+    except CiUsageError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from None
+    if outcome.result is None:
+        typer.echo(f"skipped: {outcome.skipped}")
+        return
+    if skills_path:
+        typer.echo(
+            f"injected skills from {skills_path}: {', '.join(outcome.skills) or 'none'}"
+        )
+    write_result(result_file, outcome.result)
+    typer.echo(ci_report.render(outcome.result.model_dump(mode="json"), None))
+    typer.echo(f"result written to {result_file}")
+    raise typer.Exit(code=gate_exit_code(outcome.result, fail_on))
 
 
 @config_app.command("schema")

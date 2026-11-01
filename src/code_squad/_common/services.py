@@ -386,6 +386,8 @@ class ServiceBuilder:
         changed: list[str] = []
         if vcs is not None and ref is not None:
             change_request = _load_change_request(vcs, ref, warnings)
+            if change_request is None:
+                services[CHANGE_REQUEST_UNAVAILABLE_KEY] = True
         if vcs is not None and ref is not None and change_request is not None:
             changed = _changed_files(vcs, ref, warnings)
             text = _repo_config_text(vcs, ref, change_request, org, request, warnings)
@@ -627,6 +629,24 @@ def plan_run(spec: AgentSpec, services: dict[str, Any]) -> RunPlan:
     warnings = _warning_list(services)
     updated = _apply_agent(spec, agent_cfg, effective.config.limits, warnings)
     return RunPlan(updated, post_override, disabled=False)
+
+
+CHANGE_REQUEST_UNAVAILABLE_KEY: Final = "change_request_unavailable"
+CHANGE_REQUEST_UNAVAILABLE_WARNING: Final = (
+    "the change request could not be loaded from the VCS; no review was run"
+)
+
+
+def unavailable_result(spec: AgentSpec, services: dict[str, Any]) -> InvocationResult:
+    """A review target that cannot be read must never look like a clean review."""
+    return InvocationResult(
+        agent=spec.name,
+        status=RunStatus.INCOMPLETE,
+        verdict=Verdict.INCOMPLETE,
+        summary="The change request could not be loaded; no review was run.",
+        stats=Stats(config_hash=_config_hash(services)),
+        warnings=[*_warning_list(services), CHANGE_REQUEST_UNAVAILABLE_WARNING],
+    )
 
 
 def disabled_result(spec: AgentSpec, services: dict[str, Any]) -> InvocationResult:
