@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../../../../schemas/squad-config.schema.json
+# Repository config for a Java and Spring service. Read from the target branch.
+
+# Payments-adjacent service: start from the strict profile.
+extends: strict
+
+routing:
+  sensitive_paths:
+    - "**/security/**"
+    - "**/payment*/**"
+
+review:
+  ignore_globs:
+    - "**/target/**"
+    - "**/generated-sources/**"
+  verdict:
+    major_threshold: 1
+
+agents:
+  angela:
+    # Guidance for the Java reviewer. Untrusted; it cannot override system rules.
+    prompt_extra: "Check JPA queries for N+1 patterns and missing transactions."
+    max_iterations: 30
+    budgets:
+      tokens: 120000

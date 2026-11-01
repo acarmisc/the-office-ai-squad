@@ -1,0 +1,14 @@
+{
+  "total_count": 1,
+  "workflow_runs": [
+    {
+      "id": 5001,
+      "name": "ci",
+      "status": "completed",
+      "conclusion": "success",
+      "head_branch": "feature/greeting",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "html_url": "https://github.com/acme/web/actions/runs/5001"
+    }
+  ]
+}

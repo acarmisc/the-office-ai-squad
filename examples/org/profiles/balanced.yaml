@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../../schemas/squad-config.schema.json
+# Balanced profile: the platform defaults, written out so they can be edited.
+review:
+  min_confidence_to_publish: medium
+  min_severity_inline: minor
+  verdict:
+    major_threshold: 1
+    request_changes_on_blocker: true

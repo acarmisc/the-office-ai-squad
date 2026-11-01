@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "BaselineEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "expires": {
+          "description": "Mandatory expiry date; expired entries are ignored.",
+          "format": "date",
+          "title": "Expires",
+          "type": "string"
+        },
+        "file": {
+          "description": "File the accepted finding belongs to.",
+          "minLength": 1,
+          "title": "File",
+          "type": "string"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stable finding id to accept. Use rule_id and file when the id changes.",
+          "title": "Finding Id"
+        },
+        "reason": {
+          "description": "Why the finding is accepted. Required.",
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "rule_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rule id to accept within the file.",
+          "title": "Rule Id"
+        }
+      },
+      "required": [
+        "file",
+        "reason",
+        "expires"
+      ],
+      "title": "BaselineEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "accepted": {
+      "description": "Accepted findings with mandatory expiry dates.",
+      "items": {
+        "$ref": "#/$defs/BaselineEntry"
+      },
+      "title": "Accepted",
+      "type": "array"
+    }
+  },
+  "title": "Baseline",
+  "type": "object"
+}

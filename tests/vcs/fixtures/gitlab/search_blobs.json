@@ -1,0 +1,9 @@
+[
+  {
+    "basename": "app.tsx",
+    "data": "import { greet } from \"./greet\";\n",
+    "path": "src/app.tsx",
+    "filename": "src/app.tsx",
+    "startline": 2
+  }
+]

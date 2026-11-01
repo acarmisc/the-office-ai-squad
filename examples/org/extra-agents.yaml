@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../schemas/squad-config.schema.json
+# Fragment to merge into the org file: a Python reviewer defined purely by config.
+# The platform registers it at startup and routes **/*.py to it. Its tool preset can
+# only include publish_review as an external write, and the posting gate still applies.
+extra_agents:
+  - id: oscar
+    description: Python reviewer for correctness, typing and security hygiene.
+    prompt_path: /etc/squad/agents/oscar/prompt.md
+    knowledge_dirs:
+      - /etc/squad/agents/oscar/knowledge
+    tool_preset: review_publish
+    model: sonnet-5-5
+    routes:
+      - "**/*.py"

@@ -25,6 +25,10 @@ TOOL_POLICY: dict[str, ToolClass] = {
     "search_repo": ToolClass.READ,
     "list_tree": ToolClass.READ,
     "publish_review": ToolClass.EXTERNAL_WRITE,
+    "parse_dependencies": ToolClass.READ,
+    "lookup_vulnerabilities": ToolClass.READ,
+    "lookup_cve": ToolClass.READ,
+    "search_advisories": ToolClass.READ,
 }
 
 _NAME_ATTR: Final = "tool_name"

@@ -1,0 +1,9 @@
+[
+  {
+    "id": 7001,
+    "name": "unit",
+    "status": "failed",
+    "stage": "test",
+    "web_url": "https://gitlab.test/acme/web/-/jobs/7001"
+  }
+]

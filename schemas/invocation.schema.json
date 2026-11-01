@@ -1,0 +1,301 @@
+{
+  "$defs": {
+    "Attachment": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "title": "Data",
+          "type": "string"
+        },
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "image",
+            "text"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "media_type",
+        "data",
+        "sha256"
+      ],
+      "title": "Attachment",
+      "type": "object"
+    },
+    "Mode": {
+      "enum": [
+        "review",
+        "troubleshoot",
+        "advisor",
+        "implementer",
+        "question"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "ProjectConfigOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "config_ref": {
+          "default": "base",
+          "enum": [
+            "base",
+            "head"
+          ],
+          "title": "Config Ref",
+          "type": "string"
+        },
+        "llm_api_key_secret": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Llm Api Key Secret"
+        },
+        "overrides": {
+          "additionalProperties": true,
+          "title": "Overrides",
+          "type": "object"
+        },
+        "skills_ref": {
+          "default": "base",
+          "enum": [
+            "base",
+            "head"
+          ],
+          "title": "Skills Ref",
+          "type": "string"
+        },
+        "skills_repo_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skills Repo Path"
+        },
+        "vcs_base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vcs Base Url"
+        },
+        "vcs_provider": {
+          "anyOf": [
+            {
+              "enum": [
+                "gitlab",
+                "github"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vcs Provider"
+        },
+        "vcs_token_secret": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vcs Token Secret"
+        }
+      },
+      "title": "ProjectConfigOverride",
+      "type": "object"
+    },
+    "SkillPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "const": "payload",
+          "default": "payload",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "body"
+      ],
+      "title": "SkillPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "attachments": {
+      "items": {
+        "$ref": "#/$defs/Attachment"
+      },
+      "title": "Attachments",
+      "type": "array"
+    },
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Idempotency Key"
+    },
+    "litellm_tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Litellm Tags",
+      "type": "array"
+    },
+    "mode": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Mode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "model": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:-]{0,127}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model"
+    },
+    "post": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Post"
+    },
+    "project": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Project"
+    },
+    "project_config": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProjectConfigOverride"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "prompt": {
+      "maxLength": 20000,
+      "minLength": 1,
+      "title": "Prompt",
+      "type": "string"
+    },
+    "skills": {
+      "items": {
+        "$ref": "#/$defs/SkillPayload"
+      },
+      "title": "Skills",
+      "type": "array"
+    },
+    "target": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target"
+    }
+  },
+  "required": [
+    "prompt"
+  ],
+  "title": "InvocationRequest",
+  "type": "object"
+}

@@ -49,7 +49,8 @@ def test_invoke_rejects_unsupported_mode(runner: CliRunner) -> None:
     assert result.exit_code == 2
 
 
-def test_config_group_is_a_placeholder(runner: CliRunner) -> None:
-    result = runner.invoke(app, ["config", "status"])
-    assert result.exit_code == 1
-    assert "M3" in result.output
+def test_config_group_lists_its_commands(runner: CliRunner) -> None:
+    result = runner.invoke(app, ["config", "--help"])
+    assert result.exit_code == 0
+    for command in ("schema", "validate", "explain", "init"):
+        assert command in result.output

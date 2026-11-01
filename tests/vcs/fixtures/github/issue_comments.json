@@ -1,0 +1,16 @@
+[
+  {
+    "id": 900,
+    "body": "Earlier summary.\n<!-- code-squad:summary:jim -->",
+    "user": {
+      "login": "code-squad-bot"
+    }
+  },
+  {
+    "id": 901,
+    "body": "Looks fine",
+    "user": {
+      "login": "bob"
+    }
+  }
+]

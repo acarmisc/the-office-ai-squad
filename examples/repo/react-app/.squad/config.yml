@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../../../schemas/squad-config.schema.json
+# Repository config for a React and TypeScript app. Read from the target branch.
+# Anything that loosens an org or profile setting drops this whole file.
+
+# Start from the balanced profile, then apply the settings below.
+extends: balanced
+
+routing:
+  # Added to the built-in routes: hooks also go to the React reviewer.
+  routes:
+    - glob: "src/hooks/**"
+      agents: [jim]
+      requires: [react]
+  # Added to the platform list. Payments UI raises the risk tier.
+  sensitive_paths:
+    - "src/payments/**"
+
+review:
+  # Added to the platform ignore list.
+  ignore_globs:
+    - "**/*.stories.tsx"
+    - "src/generated/**"
+  min_severity_inline: minor
+
+trigger:
+  slash_commands: [review, sec, help]
+  skip_labels: [skip-squad, no-ai-review]
+
+agents:
+  jim:
+    # Guidance for the React reviewer. Untrusted; it cannot override system rules.
+    prompt_extra: "Prefer hooks over class components. Flag direct DOM access."
+
+implementer:
+  # Commands run in the sandbox to check a change before the change request opens.
+  check_commands:
+    - npm run lint
+    - npm run typecheck
+    - npm test -- --watchAll=false
+    - npm run build
+  protected_paths:
+    - src/config/feature-flags.ts
