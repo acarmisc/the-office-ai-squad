@@ -163,3 +163,25 @@ def test_bump_image_version_updates_pyproject_and_package(tmp_path: Path) -> Non
         change.path.write_text(change.after, encoding="utf-8")
     assert 'version = "0.3.0"' in (tmp_path / "pyproject.toml").read_text("utf-8")
     assert '__version__ = "0.3.0"' in (package / "__init__.py").read_text("utf-8")
+
+
+def test_bump_image_version_updates_the_action_image_default(tmp_path: Path) -> None:
+    chart = _chart(tmp_path)
+    action = tmp_path / "action.yml"
+    action.write_text(
+        'inputs:\n  image:\n    description: "Image."\n'
+        '    default: "ghcr.io/acarmisc/code-squad:0.1.0"\n',
+        encoding="utf-8",
+    )
+    changes = bump_image.plan(chart, None, "0.3.0", root=tmp_path)
+    for change in changes:
+        change.path.write_text(change.after, encoding="utf-8")
+    assert 'default: "ghcr.io/acarmisc/code-squad:0.3.0"' in action.read_text("utf-8")
+    assert 'description: "Image."' in action.read_text("utf-8")
+
+
+def test_bump_image_refuses_an_action_without_the_image_default(tmp_path: Path) -> None:
+    chart = _chart(tmp_path)
+    (tmp_path / "action.yml").write_text("inputs:\n  agent:\n    default: jim\n")
+    with pytest.raises(bump_image.BumpError, match="image input default"):
+        bump_image.plan(chart, None, "0.3.0", root=tmp_path)

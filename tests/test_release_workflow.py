@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from typing import Any, Final
 
@@ -228,3 +231,62 @@ def test_chart_defaults_point_at_ghcr_and_tag_follows_app_version() -> None:
     assert values["image"]["tag"] == ""
     sandbox_image = values["sandbox"]["image"]
     assert sandbox_image.startswith("ghcr.io/acarmisc/code-squad-sandbox-node:")
+
+
+def _verify_script() -> str:
+    lines = _text().splitlines()
+    start = next(
+        i for i, line in enumerate(lines) if "uv run --frozen python -" in line
+    )
+    body: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.strip() == "PY":
+            return textwrap.dedent("\n".join(body)) + "\n"
+        body.append(line)
+    raise AssertionError("the version check heredoc is not closed")
+
+
+def _run_verify(root: Path, version: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-", version],
+        input=_verify_script(),
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_version_check_passes_on_the_repository_sources() -> None:
+    version = yaml.safe_load(
+        (ROOT / "deploy" / "helm" / "code-squad" / "Chart.yaml").read_text("utf-8")
+    )["appVersion"]
+    completed = _run_verify(ROOT, str(version))
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "action.yml" in completed.stdout
+
+
+def test_version_check_fails_when_the_action_image_tag_is_stale(tmp_path: Path) -> None:
+    for source in ("pyproject.toml", "action.yml"):
+        (tmp_path / source).write_text((ROOT / source).read_text("utf-8"), "utf-8")
+    chart = tmp_path / "deploy" / "helm" / "code-squad"
+    chart.mkdir(parents=True)
+    (chart / "Chart.yaml").write_text(
+        (ROOT / "deploy" / "helm" / "code-squad" / "Chart.yaml").read_text("utf-8"),
+        "utf-8",
+    )
+    package = tmp_path / "src" / "code_squad"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        (ROOT / "src" / "code_squad" / "__init__.py").read_text("utf-8"), "utf-8"
+    )
+    stale = (
+        (ROOT / "action.yml")
+        .read_text("utf-8")
+        .replace("code-squad:", "code-squad:0.0.9-stale-")
+    )
+    (tmp_path / "action.yml").write_text(stale, "utf-8")
+    version = yaml.safe_load((chart / "Chart.yaml").read_text("utf-8"))["appVersion"]
+    completed = _run_verify(tmp_path, str(version))
+    assert completed.returncode == 1
+    assert "action.yml inputs.image default tag" in completed.stdout

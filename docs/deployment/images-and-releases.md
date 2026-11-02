@@ -50,8 +50,9 @@ The chart defaults to `image.repository: ghcr.io/acarmisc/code-squad` with an em
 ## Making a release
 
 1. Run the bump script. With `--version` it sets `version` and `appVersion` in `deploy/helm/code-squad/Chart.yaml`, the
-   sandbox image tag in `values.yaml`, `project.version` in `pyproject.toml` and `__version__` in
-   `src/code_squad/__init__.py`, so all four match the tag:
+   sandbox image tag in `values.yaml`, `project.version` in `pyproject.toml`, `__version__` in
+   `src/code_squad/__init__.py` and the default image of the GitHub Actions review in `action.yml`, so all of them match
+   the tag:
 
    ```bash
    uv run python scripts/bump_image.py --version 0.2.0 --dry-run

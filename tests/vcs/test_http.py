@@ -217,7 +217,7 @@ def test_transport_failure_counts_and_not_found_does_not() -> None:
         with pytest.raises(NotFoundError):
             client.get_json(url)
         router.get(url).mock(side_effect=httpx.ConnectError("refused"))
-        with pytest.raises(httpx.ConnectError):
+        with pytest.raises(VcsError, match="transport error: ConnectError"):
             client.get_json(url)
     assert _error_count("github", "GET repos") == before_missing + 1
 

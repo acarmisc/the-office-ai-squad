@@ -1,8 +1,9 @@
 """Bump the chart version, appVersion and image tag in place.
 
 ``--version`` sets ``version`` and ``appVersion`` in Chart.yaml, the sandbox image tag
-in values.yaml, ``project.version`` in pyproject.toml and ``__version__`` in the
-package, so a release tag ``vX.Y.Z`` matches every place the release workflow checks.
+in values.yaml, ``project.version`` in pyproject.toml, ``__version__`` in the package
+and the default ``image`` of the composite action in action.yml, so a release tag
+``vX.Y.Z`` matches every place the release workflow checks.
 ``--tag`` sets ``image.tag`` in values.yaml (leave it unset to follow appVersion).
 Edits are line based, so comments and layout survive. ``--dry-run`` prints a
 unified diff and writes nothing.
@@ -31,6 +32,9 @@ _SANDBOX_IMAGE: Final = re.compile(
 )
 _PYPROJECT_VERSION: Final = re.compile(r'^version = "[^"]*"$', re.MULTILINE)
 _PACKAGE_VERSION: Final = re.compile(r'^__version__ = "[^"]*"$', re.MULTILINE)
+_ACTION_IMAGE: Final = re.compile(
+    r'^(\s+default: "ghcr\.io/[^"\s:]+):[^"\s]+"\s*$', re.MULTILINE
+)
 
 
 class BumpError(ValueError):
@@ -98,6 +102,14 @@ def _replace_sandbox_tag(text: str, version: str, path: Path) -> str:
     )
 
 
+def _replace_action_image(text: str, version: str, path: Path) -> str:
+    if not _ACTION_IMAGE.search(text):
+        raise BumpError(f"{path.name}: image input default not found")
+    return _ACTION_IMAGE.sub(
+        lambda match: f'{match.group(1)}:{version}"', text, count=1
+    )
+
+
 def _version_changes(chart_dir: Path, root: Path, version: str) -> list[Change]:
     chart = chart_dir / "Chart.yaml"
     before = chart.read_text(encoding="utf-8")
@@ -126,6 +138,12 @@ def _version_changes(chart_dir: Path, root: Path, version: str) -> list[Change]:
         repl = f'__version__ = "{version}"'
         changes.append(
             Change(package, before, _sub_once(_PACKAGE_VERSION, before, repl, package))
+        )
+    action = root / "action.yml"
+    if action.is_file():
+        before = action.read_text(encoding="utf-8")
+        changes.append(
+            Change(action, before, _replace_action_image(before, version, action))
         )
     return changes
 

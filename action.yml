@@ -1,0 +1,215 @@
+name: "Code Squad review"
+description: >-
+  Review a pull request with a code-squad agent (jim by default) inside the job, with the
+  job's GITHUB_TOKEN. A dry run unless post is "true".
+author: "acarmisc"
+branding:
+  icon: "check-square"
+  color: "blue"
+
+# A composite action, not a Docker action: the image runs as uid 10001, and only a step
+# on the runner can write GITHUB_OUTPUT and GITHUB_STEP_SUMMARY. The review runs in the
+# image through `docker run`. This action never checks out or executes pull request code.
+inputs:
+  agent:
+    description: "Agent to run: jim (default), angela, dwight, darryl or michael."
+    required: false
+    default: "jim"
+  post:
+    description: "\"true\" publishes the review; \"false\" (default) is a dry run."
+    required: false
+    default: "false"
+  skills-path:
+    description: >-
+      Directory of */SKILL.md files, relative to the workspace, injected as payload
+      skills. Point it at a trusted shared-skills checkout, never at the pull request head.
+    required: false
+    default: ""
+  model:
+    description: "Model alias from the organisation allow-list. Empty uses the configured model."
+    required: false
+    default: ""
+  fail-on:
+    description: >-
+      none (default): fail only when the run fails. request_changes: also fail on a
+      request_changes verdict. incomplete: also fail on any incomplete outcome.
+    required: false
+    default: "none"
+  github-token:
+    description: "Token that reads the pull request and writes the review. Defaults to the job token."
+    required: false
+    default: "${{ github.token }}"
+  llm-base-url:
+    description: "LiteLLM gateway URL, for example https://llm.example.com/v1."
+    required: true
+  llm-api-key:
+    description: "Gateway key. Pass a secret; it reaches the container only as an environment variable."
+    required: true
+  image:
+    description: "Image to run. Pin a release tag or a digest."
+    required: false
+    default: "ghcr.io/acarmisc/code-squad:0.1.0"
+
+outputs:
+  verdict:
+    description: "approve, comment, request_changes or incomplete; none when no review ran."
+    value: ${{ steps.summary.outputs.verdict }}
+  status:
+    description: "complete, incomplete or failed; none when no review ran."
+    value: ${{ steps.summary.outputs.status }}
+  findings:
+    description: "Number of findings in the result."
+    value: ${{ steps.summary.outputs.findings }}
+  result-file:
+    description: "Path of the full JSON result on the runner; empty when no review ran."
+    value: ${{ steps.summary.outputs.result-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Review the pull request
+      id: review
+      shell: bash
+      env:
+        AGENT: ${{ inputs.agent }}
+        POST: ${{ inputs.post }}
+        SKILLS_PATH: ${{ inputs.skills-path }}
+        MODEL: ${{ inputs.model }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        IMAGE: ${{ inputs.image }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        LLM_BASE_URL: ${{ inputs.llm-base-url }}
+        LLM_API_KEY: ${{ inputs.llm-api-key }}
+      run: |
+        set -euo pipefail
+        case "$POST" in
+          true) post_flag="--post" ;;
+          false) post_flag="--no-post" ;;
+          *)
+            echo "::error::post must be \"true\" or \"false\""
+            exit 2
+            ;;
+        esac
+        out="$RUNNER_TEMP/code-squad"
+        rm -rf "$out"
+        mkdir -p "$out"
+        echo "result-file=$out/squad-result.json" >> "$GITHUB_OUTPUT"
+
+        args=(ci review --agent "$AGENT" "$post_flag" --fail-on "$FAIL_ON" --result-file /out/squad-result.json)
+        if [ -n "$SKILLS_PATH" ]; then
+          args+=(--skills-path "$SKILLS_PATH")
+        fi
+        if [ -n "$MODEL" ]; then
+          args+=(--model "$MODEL")
+        fi
+
+        # Secrets travel as environment variables by name (-e NAME), never as arguments.
+        status=0
+        docker run --rm \
+          --user "$(id -u):$(id -g)" \
+          --read-only --tmpfs /tmp \
+          -e GITHUB_TOKEN -e LLM_BASE_URL -e LLM_API_KEY \
+          -e GITHUB_REPOSITORY -e GITHUB_API_URL -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT \
+          -e GITHUB_EVENT_NAME \
+          -e GITHUB_EVENT_PATH=/github/event.json \
+          -e GITHUB_WORKSPACE=/github/workspace \
+          -e HOME=/tmp \
+          -v "$GITHUB_EVENT_PATH:/github/event.json:ro" \
+          -v "$GITHUB_WORKSPACE:/github/workspace:ro" \
+          -v "$out:/out" -w /out \
+          --entrypoint squad \
+          "$IMAGE" "${args[@]}" || status=$?
+        exit "$status"
+
+    - name: Write the summary and outputs
+      id: summary
+      if: always()
+      shell: bash
+      env:
+        RESULT_FILE: ${{ steps.review.outputs.result-file }}
+        AGENT: ${{ inputs.agent }}
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import json
+        import os
+        import re
+
+        RANK = {"blocker": 0, "major": 1, "minor": 2, "nit": 3}
+        TOKEN = re.compile(r"[a-z_]{1,32}")
+        path = os.environ.get("RESULT_FILE", "")
+        summary = os.environ["GITHUB_STEP_SUMMARY"]
+        output = os.environ["GITHUB_OUTPUT"]
+        agent = os.environ.get("AGENT", "")
+
+
+        def cell(value):
+            text = " ".join(str(value if value is not None else "").split())
+            return text.replace("|", "\\|").replace("`", "'")
+
+
+        def token(value, fallback):
+            text = str(value or "")
+            return text if TOKEN.fullmatch(text) else fallback
+
+
+        def set_outputs(verdict, status, findings, result_path):
+            with open(output, "a", encoding="utf-8") as handle:
+                handle.write(f"verdict={verdict}\n")
+                handle.write(f"status={status}\n")
+                handle.write(f"findings={findings}\n")
+                handle.write(f"result-file={result_path}\n")
+
+
+        if not path or not os.path.isfile(path) or os.path.getsize(path) == 0:
+            with open(summary, "a", encoding="utf-8") as handle:
+                handle.write("### Code Squad review\n\n")
+                handle.write(
+                    "No review result was written. The pull request was skipped (a draft, "
+                    "or a fork without secrets), or the run failed before a result. "
+                    "See the job log.\n"
+                )
+            set_outputs("none", "none", "0", "")
+            raise SystemExit(0)
+
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        findings = [item for item in data.get("findings") or [] if isinstance(item, dict)]
+        findings.sort(key=lambda item: RANK.get(str(item.get("severity")), 9))
+        stats = data.get("stats") or {}
+        posted = data.get("posted") or {}
+        verdict = token(data.get("verdict"), "unknown")
+        status = token(data.get("status"), "unknown")
+        lines = [
+            f"### Code Squad review: {cell(data.get('agent') or agent)}",
+            "",
+            "| | |",
+            "| --- | --- |",
+            f"| Verdict | `{verdict}` |",
+            f"| Status | `{status}` |",
+            f"| Findings | {len(findings)} |",
+            f"| Published | notes {posted.get('notes', 0)}, status {cell(posted.get('status'))} |",
+            f"| Tokens | input {stats.get('input_tokens', 0)}, output {stats.get('output_tokens', 0)} |",
+            "",
+        ]
+        if data.get("summary"):
+            lines.extend([cell(data.get("summary")), ""])
+        if findings:
+            lines.extend(["| Severity | Location | Title |", "| --- | --- | --- |"])
+            for item in findings[:20]:
+                where = f"`{cell(item.get('file'))}:{cell(item.get('line_start'))}`"
+                lines.append(
+                    f"| {cell(item.get('severity'))} | {where} | {cell(item.get('title'))} |"
+                )
+            if len(findings) > 20:
+                lines.append(f"\n{len(findings) - 20} more in the result file.")
+            lines.append("")
+        warnings = [item for item in data.get("warnings") or [] if isinstance(item, str)]
+        if warnings:
+            lines.append("#### Warnings")
+            lines.extend(f"- {cell(item)}" for item in warnings[:20])
+            lines.append("")
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+        set_outputs(verdict, status, len(findings), path)
+        PY

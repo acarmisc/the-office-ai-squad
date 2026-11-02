@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+# Reviews every pull request of a React repository with jim, inside the job, using the
+# job's GITHUB_TOKEN. Copy it into the consuming repository as
+# .github/workflows/code-squad-review.yml. Documentation: docs/vcs/github-actions.md.
+#
+# Rollout: keep SQUAD_POST unset for the first pull requests. The review is then a dry run:
+# it reads the pull request and prints the findings, and it writes nothing to GitHub.
+# Set the repository variable SQUAD_POST to "true" once the findings look right.
+#
+# Repository settings:
+#   variable  LLM_BASE_URL   gateway URL, for example https://llm.example.com/v1
+#   variable  SQUAD_POST     "true" publishes the review; anything else is a dry run
+#   secret    LLM_API_KEY   gateway key
+#
+# Forks: pull requests from forks get no secrets, so the review is skipped with a notice.
+# Repository skills in .agents/skills/ are read from the base branch automatically; this
+# workflow does not check out the pull request, so no code from it runs.
+#
+# Pin the action to a release tag, or to a full commit SHA with the tag in a comment.
+
+name: code-squad-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Least privilege. pull-requests and statuses are needed to post the review and the
+# ai-review/jim commit status. contents: read covers reading the base branch.
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+# One review per pull request at a time. A new push cancels the review still running.
+concurrency:
+  group: code-squad-jim-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Draft pull requests are not reviewed until they are marked ready for review.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Optional: shared review skills from another repository, at a pinned ref. Uncomment
+      # to use them. Use a read-only token if the skills repository is private.
+      # - name: Check out the shared review skills
+      #   uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      #   with:
+      #     repository: acme/review-skills
+      #     ref: 0123456789abcdef0123456789abcdef01234567 # a reviewed commit, not a branch
+      #     path: .squad-shared-skills
+      #     persist-credentials: false
+
+      - name: Review with jim
+        uses: acarmisc/the-office-ai-squad@v0.1.0
+        with:
+          # The React reviewer. Other agents for this repository: angela (Java), dwight (security).
+          agent: jim
+          # Dry run unless the repository variable SQUAD_POST is "true".
+          post: ${{ vars.SQUAD_POST == 'true' && 'true' || 'false' }}
+          # Skills from the shared checkout above. Empty, and so ignored, when that checkout
+          # is not present. Never point this at the pull request head.
+          skills-path: ${{ hashFiles('.squad-shared-skills/**') != '' && '.squad-shared-skills' || '' }}
+          # The gateway and its key. The key reaches the container only as an environment
+          # variable.
+          llm-base-url: ${{ vars.LLM_BASE_URL }}
+          llm-api-key: ${{ secrets.LLM_API_KEY }}
+          # fail-on: none keeps the check green on findings. Add it as a required status
+          # only after the team has tuned the review.
+          fail-on: none

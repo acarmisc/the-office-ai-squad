@@ -4,6 +4,8 @@ This page installs the released chart and images for the first time, in dry-run 
 before it is allowed to write to your VCS. It covers the minimal set of agents: `michael` (orchestrator), `jim`, `angela` and `dwight`.
 `darryl` and `pam` stay off until you need them, because each one needs extra access (the Kubernetes API and a sandbox namespace).
 
+If you do not want a cluster, the [GitHub Actions review](../vcs/github-actions.md) runs the same agents inside a pull request job.
+
 Every step names the command to run. Replace the example hosts (`*.example.com`), the RFC 5737 addresses (`192.0.2.0/24`,
 `198.51.100.0/24`) and the project path with your own values. The values file is checked by the test suite against the chart schema,
 so a key that the chart does not accept fails the docs build.

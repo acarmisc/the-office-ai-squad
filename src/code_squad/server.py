@@ -16,7 +16,7 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Final
 
@@ -37,6 +37,13 @@ from code_squad._common.config.errors import ConfigError
 from code_squad._common.config.loader import ConfigSources, load_org
 from code_squad._common.config.schema import SquadConfig
 from code_squad._common.contract import InvocationRequest, InvocationResult
+from code_squad._common.execute import (
+    InvocationRefused,
+    ServicesFactory,
+    prepare_invocation,
+    run_with_runner,
+    with_extra_knowledge,
+)
 from code_squad._common.model import ModelFactory, get_model_factory
 from code_squad._common.observability import (
     REGISTRY,
@@ -47,15 +54,11 @@ from code_squad._common.observability import (
 )
 from code_squad._common.registry import (
     AGENT_IDS,
-    extra_knowledge_dirs,
     get_spec,
     register_extra_agents,
 )
 from code_squad._common.services import (
     ServiceBuilder,
-    disabled_result,
-    plan_run,
-    runner_for,
     sources_from_env,
 )
 from code_squad._common.session import (
@@ -68,7 +71,6 @@ from code_squad._common.session import (
 from code_squad._common.spec import AgentSpec
 from code_squad._common.validation import (
     ValidationFailure,
-    model_allowlist_errors,
     validate_invocation,
 )
 from code_squad.michael.fanout import (
@@ -90,7 +92,6 @@ _DEFAULT_AGENT: Final = "michael"
 _MAX_REQUEST_ENV: Final = "SQUAD_MAX_REQUEST_BYTES"
 _DEFAULT_MAX_REQUEST_BYTES: Final = 1_000_000
 _MAX_KEY_LENGTH: Final = 128
-ServicesFactory = Callable[[InvocationRequest, str], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -128,13 +129,12 @@ def create_app(
             if open_access
             else "refuse every request; set the token or SQUAD_ALLOW_UNAUTHENTICATED=1",
         )
-    base_services: ServicesFactory = services_factory or ServiceBuilder().build
-    build_services = _with_extra_knowledge(base_services)
+    build_services = with_extra_knowledge(services_factory or ServiceBuilder().build)
     store = session_store if session_store is not None else _default_store()
     jobs = JobStore(store)
     registry = InFlightRegistry(store)
     client = _specialist_client(wiring, env) if name == _DEFAULT_AGENT else None
-    invoker: Invoker = make_invoker(client) if client is not None else _run_agent
+    invoker: Invoker = make_invoker(client) if client is not None else run_with_runner
     app = FastAPI(title="Code Squad", version=__version__)
 
     @app.get("/ping")
@@ -195,15 +195,15 @@ def create_app(
         scoped: str | None,
         registry: InFlightRegistry,
     ) -> Response:
-        services = await run_in_threadpool(build_services, req, spec.name)
-        errors = model_allowlist_errors(req, _allowed_models(services))
-        if errors:
-            return JSONResponse(status_code=422, content={"detail": errors})
-        plan = plan_run(spec, services)
-        if plan.disabled:
-            refused = disabled_result(spec, services)
-            _finish(refused, uuid.uuid4().hex, 0.0)
-            return JSONResponse(content=refused.model_dump(mode="json"))
+        try:
+            prepared = await run_in_threadpool(
+                prepare_invocation, spec, req, build_services
+            )
+        except InvocationRefused as exc:
+            return JSONResponse(status_code=422, content={"detail": exc.errors})
+        if prepared.disabled is not None:
+            _finish(prepared.disabled, uuid.uuid4().hex, 0.0)
+            return JSONResponse(content=prepared.disabled.model_dump(mode="json"))
         factory = model_factory or get_model_factory()
         if _wants_async(prefer):
             job_id = uuid.uuid4().hex
@@ -212,11 +212,11 @@ def create_app(
                 _run_job,
                 jobs,
                 job_id,
-                plan.spec,
+                prepared.spec,
                 req,
-                services,
+                prepared.services,
                 factory,
-                plan.post_override,
+                prepared.post_override,
                 invoker,
                 registry=registry,
                 scoped_key=scoped,
@@ -225,7 +225,12 @@ def create_app(
                 status_code=202, content={"job_id": job_id}, background=background
             )
         result = await _execute(
-            plan.spec, req, services, factory, plan.post_override, invoker
+            prepared.spec,
+            req,
+            prepared.services,
+            factory,
+            prepared.post_override,
+            invoker,
         )
         return JSONResponse(content=result.model_dump(mode="json"))
 
@@ -274,19 +279,6 @@ def _register_extras(sources: ConfigSources) -> None:
     register_extra_agents(SquadConfig.model_validate(org).extra_agents)
 
 
-def _with_extra_knowledge(base: ServicesFactory) -> ServicesFactory:
-    def build(request: InvocationRequest, agent: str) -> dict[str, Any]:
-        services = base(request, agent)
-        extra = extra_knowledge_dirs(agent)
-        if extra:
-            current = services.get("knowledge_extra_dirs")
-            existing = list(current) if isinstance(current, list) else []
-            services["knowledge_extra_dirs"] = [*existing, *extra]
-        return services
-
-    return build
-
-
 def _authorized(request: Request, api_token: str | None, open_access: bool) -> bool:
     if api_token is None:
         return open_access
@@ -307,23 +299,6 @@ def _specialist_client(
     if wiring is not None and wiring.specialist_client is not None:
         return wiring.specialist_client
     return HttpSpecialistClient(httpx.Client(), breakers=CircuitBreakers(), env=env)
-
-
-def _run_agent(
-    spec: AgentSpec,
-    req: InvocationRequest,
-    services: dict[str, Any],
-    factory: ModelFactory,
-    post_override: bool | None,
-) -> InvocationResult:
-    runner = runner_for(spec.name)
-    return runner(
-        spec,
-        req,
-        services=services,
-        model_factory=factory,
-        post_override=post_override,
-    )
 
 
 def _default_store() -> SessionStore:
@@ -400,12 +375,6 @@ def _settle(registry: InFlightRegistry, scoped: str, response: Response) -> None
         registry.complete(scoped, {"status_code": 200, "body": body})
         return
     registry.release(scoped)
-
-
-def _allowed_models(services: Mapping[str, Any]) -> list[str]:
-    config: Any = getattr(services.get("config"), "config", None)
-    allowed: Any = getattr(getattr(config, "llm", None), "allowed_models", None)
-    return [str(item) for item in allowed] if isinstance(allowed, list) else []
 
 
 def _wants_async(prefer: str | None) -> bool:
