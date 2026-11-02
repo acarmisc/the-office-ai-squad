@@ -18,17 +18,39 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: code-squad-michael
-  title: Code Squad michael
-  description: "Orchestrator: receives webhooks, routes requests, fans out to specialists and publishes one consolidated review."
-  tags: [agents, code-squad, michael]
+  title: Michael - Orchestrator
+  description: Routes change requests, incidents and tasks to the squad specialists and publishes one consolidated verdict.
+  tags: [ai-agent, orchestrator, code-review]
   annotations:
     backstage.io/techdocs-ref: dir:.
     github.com/project-slug: acarmisc/the-office-ai-squad
+    ai-agent.io/runtime: http
+    ai-agent.io/runtime-handle: code-squad-michael
+    ai-agent.io/endpoint: http://code-squad-michael.code-squad.svc.cluster.local:8080
+    ai-agent.io/health: http://code-squad-michael.code-squad.svc.cluster.local:8080/ping
+    ai-agent.io/telemetry-id: code-squad-michael
+    ai-agent.io/squad: code-squad
+    ai-agent.io/version: '0.1.0'
+    ai-agent.io/purpose: Detects the stack and intent of a change request, runs the right specialists in parallel, deduplicates their findings and posts a single verdict.
+    ai-agent.io/capabilities: 'routing:reasoning,aggregation:reasoning,tool-use:tools'
+    ai-agent.io/billing-model: per-token
+    ai-agent.io/hire-schema: >-
+      [{"name":"project","label":"Project","type":"text","required":true,"help":"Repository path, e.g. group/repo (GitLab) or owner/repo (GitHub)"},
+       {"name":"mode","label":"Request type","type":"select","required":true,"options":["review","incident","implement","question"],"default":"review","help":"review = full squad review of a change request"},
+       {"name":"target","label":"Target","type":"text","required":true,"help":"Merge/pull request number, issue number, or an incident reference"},
+       {"name":"action","label":"Action","type":"select","required":true,"options":["dry-run","post"],"default":"dry-run","help":"dry-run = show the result only; post = publish comments, status and any change request"}]
+    ai-agent.io/prompt-template: "Handle a '{mode}' request on project '{project}', target {target}. Action: {action}."
 spec:
-  type: service
+  type: ai-agent
   lifecycle: experimental
   owner: group:default/platform-team
   system: code-squad
+  dependsOn:
+    - component:default/code-squad-jim
+    - component:default/code-squad-angela
+    - component:default/code-squad-dwight
+    - component:default/code-squad-darryl
+    - component:default/code-squad-pam
   providesApis:
     - code-squad-michael-api
 ---
@@ -133,14 +155,29 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: code-squad-jim
-  title: Code Squad jim
-  description: "React and TypeScript reviewer."
-  tags: [agents, code-squad, jim]
+  title: Jim - React Reviewer
+  description: Reviews React and TypeScript changes using built-in best practices and the project's own skills.
+  tags: [ai-agent, code-review, react, typescript]
   annotations:
     backstage.io/techdocs-ref: dir:.
     github.com/project-slug: acarmisc/the-office-ai-squad
+    ai-agent.io/runtime: http
+    ai-agent.io/runtime-handle: code-squad-jim
+    ai-agent.io/endpoint: http://code-squad-jim.code-squad.svc.cluster.local:8080
+    ai-agent.io/health: http://code-squad-jim.code-squad.svc.cluster.local:8080/ping
+    ai-agent.io/telemetry-id: code-squad-jim
+    ai-agent.io/squad: code-squad
+    ai-agent.io/version: '0.1.0'
+    ai-agent.io/purpose: Finds correctness, performance, accessibility and maintainability issues in React code, anchored to the exact line of the change request.
+    ai-agent.io/capabilities: 'react-review:reasoning,project-skills:tools,repo-search:retrieval'
+    ai-agent.io/billing-model: per-token
+    ai-agent.io/hire-schema: >-
+      [{"name":"project","label":"Project","type":"text","required":true,"help":"Repository path, e.g. group/repo (GitLab) or owner/repo (GitHub)"},
+       {"name":"target","label":"Change request","type":"text","required":true,"help":"Merge request IID or pull request number, e.g. 42"},
+       {"name":"action","label":"Action","type":"select","required":true,"options":["dry-run","post"],"default":"dry-run","help":"dry-run = show the review only; post = publish comments and status"}]
+    ai-agent.io/prompt-template: "Review change request {target} in project '{project}'. Action: {action}."
 spec:
-  type: service
+  type: ai-agent
   lifecycle: experimental
   owner: group:default/platform-team
   system: code-squad
@@ -226,14 +263,29 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: code-squad-angela
-  title: Code Squad angela
-  description: "Java and JVM reviewer, including Spring applications."
-  tags: [agents, code-squad, angela]
+  title: Angela - Java Reviewer
+  description: Reviews Java and Spring changes using built-in best practices and the project's own skills.
+  tags: [ai-agent, code-review, java, spring]
   annotations:
     backstage.io/techdocs-ref: dir:.
     github.com/project-slug: acarmisc/the-office-ai-squad
+    ai-agent.io/runtime: http
+    ai-agent.io/runtime-handle: code-squad-angela
+    ai-agent.io/endpoint: http://code-squad-angela.code-squad.svc.cluster.local:8080
+    ai-agent.io/health: http://code-squad-angela.code-squad.svc.cluster.local:8080/ping
+    ai-agent.io/telemetry-id: code-squad-angela
+    ai-agent.io/squad: code-squad
+    ai-agent.io/version: '0.1.0'
+    ai-agent.io/purpose: Finds correctness, concurrency, transaction and API-design issues in Java code, aware of the project's Java version and conventions.
+    ai-agent.io/capabilities: 'java-review:reasoning,project-skills:tools,repo-search:retrieval'
+    ai-agent.io/billing-model: per-token
+    ai-agent.io/hire-schema: >-
+      [{"name":"project","label":"Project","type":"text","required":true,"help":"Repository path, e.g. group/repo (GitLab) or owner/repo (GitHub)"},
+       {"name":"target","label":"Change request","type":"text","required":true,"help":"Merge request IID or pull request number, e.g. 42"},
+       {"name":"action","label":"Action","type":"select","required":true,"options":["dry-run","post"],"default":"dry-run","help":"dry-run = show the review only; post = publish comments and status"}]
+    ai-agent.io/prompt-template: "Review change request {target} in project '{project}'. Action: {action}."
 spec:
-  type: service
+  type: ai-agent
   lifecycle: experimental
   owner: group:default/platform-team
   system: code-squad
@@ -319,14 +371,29 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: code-squad-dwight
-  title: Code Squad dwight
-  description: "Security reviewer: code, configuration and dependency posture, with live vulnerability intelligence."
-  tags: [agents, code-squad, dwight]
+  title: Dwight - Security Reviewer
+  description: Assesses the security posture of code and dependencies against embedded guidelines and live vulnerability data.
+  tags: [ai-agent, code-review, security, cve]
   annotations:
     backstage.io/techdocs-ref: dir:.
     github.com/project-slug: acarmisc/the-office-ai-squad
+    ai-agent.io/runtime: http
+    ai-agent.io/runtime-handle: code-squad-dwight
+    ai-agent.io/endpoint: http://code-squad-dwight.code-squad.svc.cluster.local:8080
+    ai-agent.io/health: http://code-squad-dwight.code-squad.svc.cluster.local:8080/ping
+    ai-agent.io/telemetry-id: code-squad-dwight
+    ai-agent.io/squad: code-squad
+    ai-agent.io/version: '0.1.0'
+    ai-agent.io/purpose: Maps findings to CWE and OWASP, checks dependencies against OSV, NVD, GitHub advisories, CISA KEV and EPSS, and ranks them by exploitability.
+    ai-agent.io/capabilities: 'security-review:safety,cve-lookup:retrieval,dependency-audit:data,tool-use:tools'
+    ai-agent.io/billing-model: per-token
+    ai-agent.io/hire-schema: >-
+      [{"name":"project","label":"Project","type":"text","required":true,"help":"Repository path, e.g. group/repo (GitLab) or owner/repo (GitHub)"},
+       {"name":"target","label":"Change request","type":"text","required":true,"help":"Merge request IID or pull request number, e.g. 42"},
+       {"name":"action","label":"Action","type":"select","required":true,"options":["dry-run","post"],"default":"dry-run","help":"dry-run = show the review only; post = publish comments and status"}]
+    ai-agent.io/prompt-template: "Review the security posture of change request {target} in project '{project}'. Action: {action}."
 spec:
-  type: service
+  type: ai-agent
   lifecycle: experimental
   owner: group:default/platform-team
   system: code-squad
@@ -412,14 +479,31 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: code-squad-darryl
-  title: Code Squad darryl
-  description: "DevOps specialist: CI/CD, container, IaC and manifest review, and read-only troubleshooting."
-  tags: [agents, code-squad, darryl]
+  title: Darryl - DevOps Specialist
+  description: Reviews pipelines, containers and infrastructure code, and troubleshoots production problems read-only.
+  tags: [ai-agent, devops, ci-cd, kubernetes, troubleshooting]
   annotations:
     backstage.io/techdocs-ref: dir:.
     github.com/project-slug: acarmisc/the-office-ai-squad
+    ai-agent.io/runtime: http
+    ai-agent.io/runtime-handle: code-squad-darryl
+    ai-agent.io/endpoint: http://code-squad-darryl.code-squad.svc.cluster.local:8080
+    ai-agent.io/health: http://code-squad-darryl.code-squad.svc.cluster.local:8080/ping
+    ai-agent.io/telemetry-id: code-squad-darryl
+    ai-agent.io/squad: code-squad
+    ai-agent.io/version: '0.1.0'
+    ai-agent.io/purpose: In review mode checks CI/CD, Docker, IaC and Kubernetes manifests; in troubleshoot mode builds evidence-based hypotheses from cluster, CI and metrics data without changing anything.
+    ai-agent.io/capabilities: 'pipeline-review:reasoning,troubleshooting:reasoning,cluster-read:tools,metrics:data'
+    ai-agent.io/billing-model: per-token
+    ai-agent.io/hire-schema: >-
+      [{"name":"project","label":"Project","type":"text","required":true,"help":"Repository path, e.g. group/repo (GitLab) or owner/repo (GitHub)"},
+       {"name":"mode","label":"Mode","type":"select","required":true,"options":["review","troubleshoot"],"default":"review","help":"review = pipeline and infrastructure review; troubleshoot = investigate a production problem"},
+       {"name":"target","label":"Target","type":"text","required":true,"help":"Change request number (review) or namespace/workload or alert reference (troubleshoot)"},
+       {"name":"symptom","label":"Symptom","type":"textarea","help":"Troubleshoot only: what is failing, since when, what changed"},
+       {"name":"action","label":"Action","type":"select","required":true,"options":["dry-run","post"],"default":"dry-run","help":"dry-run = show the result only; post = publish a comment on the change request"}]
+    ai-agent.io/prompt-template: "Mode: {mode}. Project '{project}', target {target}. Symptom: {symptom}. Action: {action}."
 spec:
-  type: service
+  type: ai-agent
   lifecycle: experimental
   owner: group:default/platform-team
   system: code-squad
@@ -505,14 +589,31 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: code-squad-pam
-  title: Code Squad pam
-  description: "Frontend engineer: implements tasks in an isolated sandbox and opens a change request; advisor mode."
-  tags: [agents, code-squad, pam]
+  title: Pam - Frontend Engineer
+  description: Senior React engineer that answers design questions or implements a task in a sandbox and opens a merge request.
+  tags: [ai-agent, codegen, react, frontend]
   annotations:
     backstage.io/techdocs-ref: dir:.
     github.com/project-slug: acarmisc/the-office-ai-squad
+    ai-agent.io/runtime: http
+    ai-agent.io/runtime-handle: code-squad-pam
+    ai-agent.io/endpoint: http://code-squad-pam.code-squad.svc.cluster.local:8080
+    ai-agent.io/health: http://code-squad-pam.code-squad.svc.cluster.local:8080/ping
+    ai-agent.io/telemetry-id: code-squad-pam
+    ai-agent.io/squad: code-squad
+    ai-agent.io/version: '0.1.0'
+    ai-agent.io/purpose: In advisor mode proposes patterns and plans; in implementer mode clones the repository in an isolated sandbox, implements the task, runs the project checks and opens a merge request when posting is allowed.
+    ai-agent.io/capabilities: 'codegen:tools,react:reasoning,sandboxed-execution:tools,project-skills:tools'
+    ai-agent.io/billing-model: per-token
+    ai-agent.io/hire-schema: >-
+      [{"name":"project","label":"Project","type":"text","required":true,"help":"Repository path, e.g. group/repo (GitLab) or owner/repo (GitHub)"},
+       {"name":"mode","label":"Mode","type":"select","required":true,"options":["advisor","implementer"],"default":"advisor","help":"advisor = read-only answer or plan; implementer = write code in a sandbox"},
+       {"name":"target","label":"Issue","type":"text","help":"Optional issue number or key the task comes from"},
+       {"name":"task","label":"Task","type":"textarea","required":true,"help":"What to build or which question to answer; include acceptance criteria"},
+       {"name":"action","label":"Action","type":"select","required":true,"options":["dry-run","post"],"default":"dry-run","help":"dry-run = implement in the sandbox and show the diff only; post = push the branch and open the merge request"}]
+    ai-agent.io/prompt-template: "Mode: {mode}. Project '{project}', issue {target}. Task: {task}. Action: {action}."
 spec:
-  type: service
+  type: ai-agent
   lifecycle: experimental
   owner: group:default/platform-team
   system: code-squad
