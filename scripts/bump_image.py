@@ -32,6 +32,9 @@ _SANDBOX_IMAGE: Final = re.compile(
 )
 _PYPROJECT_VERSION: Final = re.compile(r'^version = "[^"]*"$', re.MULTILINE)
 _PACKAGE_VERSION: Final = re.compile(r'^__version__ = "[^"]*"$', re.MULTILINE)
+_CATALOG_VERSION: Final = re.compile(
+    r"^(\s+ai-agent\.io/version: )'[^']*'$", re.MULTILINE
+)
 _ACTION_IMAGE: Final = re.compile(
     r'^(\s+default: "ghcr\.io/[^"\s:]+):[^"\s]+"\s*$', re.MULTILINE
 )
@@ -139,6 +142,11 @@ def _version_changes(chart_dir: Path, root: Path, version: str) -> list[Change]:
         changes.append(
             Change(package, before, _sub_once(_PACKAGE_VERSION, before, repl, package))
         )
+    catalog = root / "catalog-info.yaml"
+    if catalog.is_file():
+        before = catalog.read_text(encoding="utf-8")
+        after = _CATALOG_VERSION.sub(lambda m: f"{m.group(1)}'{version}'", before)
+        changes.append(Change(catalog, before, after))
     action = root / "action.yml"
     if action.is_file():
         before = action.read_text(encoding="utf-8")

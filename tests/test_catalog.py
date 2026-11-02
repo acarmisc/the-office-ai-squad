@@ -134,3 +134,24 @@ def test_the_orchestrator_depends_on_every_specialist() -> None:
         f"component:default/code-squad-{a}" for a in AGENT_IDS if a != "michael"
     }
     assert set(depends_on) == specialists
+
+
+def _hire_fields(component: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = component["metadata"]["annotations"].get("ai-agent.io/hire-schema", "[]")
+    fields: list[dict[str, Any]] = json.loads(raw)
+    return fields
+
+
+@pytest.mark.parametrize("agent", AGENT_IDS)
+def test_hire_form_modes_are_modes_the_agent_accepts(agent: str) -> None:
+    from code_squad._common.registry import get_spec
+
+    component = next(
+        doc
+        for doc in _of_kind("Component")
+        if doc["metadata"]["name"] == f"code-squad-{agent}"
+    )
+    accepted = set(get_spec(agent).modes)
+    for field in _hire_fields(component):
+        if field["name"] == "mode":
+            assert set(field["options"]) <= accepted, (agent, field["options"])
