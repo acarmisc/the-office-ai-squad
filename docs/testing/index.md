@@ -70,7 +70,7 @@ runs every check on the fake, GitLab and GitHub backends. A new provider joins t
   The same file checks the GitLab and GitHub examples and the GitHub App manifest's permissions.
 - `tests/test_gen_docs.py` fails when a generated reference page differs from what the code produces, and tests the version-bump
   script on a copy of the chart.
-- `tests/test_catalog.py` parses `catalog-info.yaml` and checks one System, one Component and one API per registered agent.
+- `tests/test_catalog.py` parses `catalog-info.yaml` and checks one System, one `ai-agent` Component and one API per registered agent, plus the rules of the Backstage AI Agents plugin (Hire form, annotations).
 
 To add a documented example, write the block with the marker on the line directly before its fence. Run `just test tests/test_docs_examples.py`.
 

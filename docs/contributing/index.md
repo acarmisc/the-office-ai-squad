@@ -58,7 +58,7 @@ built-in agent:
 4. Write the prompt with the required sections (`## Role and boundaries`, `## Untrusted content`, `## Method`, `## Severity rubric`,
    `## Output contract`, `## Dry-run`, `## Tools and skills`, `## Limits`), under 2500 words. `just prompts` checks this.
 5. Add the agent to the chart (`agents.<id>` in `values.yaml`, the schema, and the templates that list agents), to `deploy/compose.yaml`,
-   to `scripts/smoke_test.sh` and to `catalog-info.yaml`, which needs one Component and one API for it.
+   to `scripts/smoke_test.sh` and to `catalog-info.yaml`, which needs one Component (type `ai-agent`, see [Backstage](../integrations/backstage.md)) and one API for it.
 6. Add tests: the registry test, a scripted run, the policy test that the tools are classified, and the catalogue test.
 7. Regenerate the reference pages with `just docs-gen` and update the agent's documentation page and the navigation.
 

@@ -76,6 +76,8 @@ nav:
       - Threat model: security/threat-model.md
       - Prompt injection: security/prompt-injection.md
       - Hardening: security/hardening.md
+  - Integrations:
+      - Backstage: integrations/backstage.md
   - Testing: testing/index.md
   - Contributing:
       - Overview: contributing/index.md
