@@ -185,3 +185,13 @@ def test_bump_image_refuses_an_action_without_the_image_default(tmp_path: Path) 
     (tmp_path / "action.yml").write_text("inputs:\n  agent:\n    default: jim\n")
     with pytest.raises(bump_image.BumpError, match="image input default"):
         bump_image.plan(chart, None, "0.3.0", root=tmp_path)
+
+
+def test_bump_image_version_updates_the_catalog_agent_versions(tmp_path: Path) -> None:
+    chart = _chart(tmp_path)
+    (tmp_path / "catalog-info.yaml").write_text(
+        "metadata:\n  annotations:\n    ai-agent.io/version: '0.1.0'\n", "utf-8"
+    )
+    changes = bump_image.plan(chart, None, "0.4.0", root=tmp_path)
+    catalog = next(c for c in changes if c.path.name == "catalog-info.yaml")
+    assert "ai-agent.io/version: '0.4.0'" in catalog.after

@@ -36,7 +36,7 @@ metadata:
     ai-agent.io/billing-model: per-token
     ai-agent.io/hire-schema: >-
       [{"name":"project","label":"Project","type":"text","required":true,"help":"Repository path, e.g. group/repo (GitLab) or owner/repo (GitHub)"},
-       {"name":"mode","label":"Request type","type":"select","required":true,"options":["review","incident","implement","question"],"default":"review","help":"review = full squad review of a change request"},
+       {"name":"mode","label":"Request type","type":"select","required":true,"options":["review","troubleshoot","implementer","question"],"default":"review","help":"review = full squad review of a change request; troubleshoot = incident investigation by darryl; implementer = pam implements an issue; question = ask the squad"},
        {"name":"target","label":"Target","type":"text","required":true,"help":"Merge/pull request number, issue number, or an incident reference"},
        {"name":"action","label":"Action","type":"select","required":true,"options":["dry-run","post"],"default":"dry-run","help":"dry-run = show the result only; post = publish comments, status and any change request"}]
     ai-agent.io/prompt-template: "Handle a '{mode}' request on project '{project}', target {target}. Action: {action}."
