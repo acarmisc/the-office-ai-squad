@@ -2,7 +2,9 @@ name: release
 
 # Publishes code-squad for a semver tag: both images (multi-arch, with provenance and
 # SBOM), the Helm chart as an OCI artifact and a GitHub Release. Re-run an existing tag with
-# workflow_dispatch. Maintainer procedure: docs/deployment/images-and-releases.md
+# workflow_dispatch, or create the tag from main with workflow_dispatch and create_tag=true
+# (the tag is pushed by this workflow's token, so no second run is triggered).
+# Maintainer procedure: docs/deployment/images-and-releases.md
 
 on:
   push:
@@ -11,9 +13,14 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to publish, for example v0.1.0"
+        description: "Tag to publish, for example v0.1.0"
         required: true
         type: string
+      create_tag:
+        description: "Create the tag on the dispatched commit first (only from main)"
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -22,8 +29,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  create-tag:
+    name: create the release tag
+    if: github.event_name == 'workflow_dispatch' && inputs.create_tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the dispatched commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Create and push the annotated tag
+        env:
+          TAG: ${{ inputs.tag }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::create_tag is only allowed when the workflow is dispatched from main (got $REF)."
+            exit 1
+          fi
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'
+          if [[ ! "$TAG" =~ $semver ]]; then
+            echo "::error::'$TAG' is not a release tag (vMAJOR.MINOR.PATCH)."
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$TAG already exists. Re-run without create_tag to publish it."
+            exit 1
+          fi
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)"
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::pyproject.toml has version $version, not ${TAG#v}. Run scripts/bump_image.py --version ${TAG#v} first."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "code-squad ${TAG#v}"
+          git push origin "refs/tags/$TAG"
+          echo "Created $TAG at $(git rev-parse HEAD)"
+
   verify:
     name: verify tag and run the gate
+    needs: create-tag
+    if: ${{ !cancelled() && (needs.create-tag.result == 'success' || needs.create-tag.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

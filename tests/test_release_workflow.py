@@ -95,6 +95,7 @@ def test_job_permissions_are_least_privilege() -> None:
         },
         "chart": {"contents": "read", "packages": "write"},
         "release": {"contents": "write"},
+        "create-tag": {"contents": "write"},
     }
     for name, permissions in expected.items():
         assert _job(name)["permissions"] == permissions, name
@@ -103,7 +104,7 @@ def test_job_permissions_are_least_privilege() -> None:
         for name, job in _workflow()["jobs"].items()
         if job["permissions"].get("contents") == "write"
     ]
-    assert writers == ["release"]
+    assert sorted(writers) == ["create-tag", "release"]
 
 
 def test_concurrency_is_per_tag_and_never_cancels() -> None:
@@ -120,7 +121,8 @@ def test_jobs_run_in_order_verify_images_chart_release() -> None:
         value = jobs[name].get("needs", [])
         return [value] if isinstance(value, str) else list(value)
 
-    assert needs("verify") == []
+    assert needs("create-tag") == []
+    assert needs("verify") == ["create-tag"]
     assert needs("images") == ["verify"]
     assert set(needs("chart")) == {"verify", "images"}
     assert set(needs("release")) == {"verify", "images", "chart"}
@@ -290,3 +292,15 @@ def test_version_check_fails_when_the_action_image_tag_is_stale(tmp_path: Path) 
     completed = _run_verify(tmp_path, str(version))
     assert completed.returncode == 1
     assert "action.yml inputs.image default tag" in completed.stdout
+
+
+def test_create_tag_only_runs_on_dispatch_from_main_and_never_overwrites() -> None:
+    job = _job("create-tag")
+    assert "workflow_dispatch" in job["if"] and "inputs.create_tag" in job["if"]
+    script = "\n".join(step.get("run", "") for step in job["steps"])
+    assert "refs/heads/main" in script
+    assert "already exists" in script
+    assert 'git push origin "refs/tags/$TAG"' in script
+    assert "--force" not in script
+    verify_if = _job("verify")["if"]
+    assert "skipped" in verify_if and "success" in verify_if

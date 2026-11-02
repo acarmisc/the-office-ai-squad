@@ -74,6 +74,13 @@ The `verify` job fails before anything is published if the tag does not match th
 
 For a pre-release, use a tag such as `v0.2.0-rc.1`. The release is marked as a pre-release, and `latest` is not moved.
 
+### Releasing without pushing a tag
+
+You can also let the workflow create the tag. In the Actions tab, open **release**, choose **Run workflow** on `main`, enter the
+tag (for example `v0.2.0`) and tick **create_tag**. The `create-tag` job refuses to run from any other branch, refuses a tag that
+already exists, and checks that `pyproject.toml` already carries the version; it then pushes an annotated tag on the dispatched
+commit and the rest of the release runs in the same workflow run.
+
 ## Re-running a release
 
 If a run fails after the tag was pushed, re-run it from the Actions tab with **Run workflow** (`workflow_dispatch`). Enter the
